@@ -1,13 +1,12 @@
-﻿using CodeX.Core.Engine;
-using CodeX.Core.Numerics;
+﻿using System.Numerics;
+using CodeX.Core.Engine;
 using CodeX.Core.Shaders;
+using CodeX.Core.Numerics;
 using CodeX.Core.Utilities;
-using System.Numerics;
 using CodeX.Games.MCLA.RPF3;
-using TC = System.ComponentModel.TypeConverterAttribute;
-using EXP = System.ComponentModel.ExpandableObjectConverter;
 using CodeX.Games.MCLA.Files;
-using System.Diagnostics;
+using EXP = System.ComponentModel.ExpandableObjectConverter;
+using TC = System.ComponentModel.TypeConverterAttribute;
 
 namespace CodeX.Games.MCLA.RSC5
 {
@@ -45,6 +44,7 @@ namespace CodeX.Games.MCLA.RSC5
             Dictionary = reader.ReadPtr<Rsc5TextureDictionary>();
             Unknown_Ch = reader.ReadUInt32();
             Drawable = reader.ReadPtr<Rsc5SimpleDrawableBase>();
+            Drawable.Item?.ApplyTextures(Dictionary.Item);
         }
 
         public override void Write(Rsc5DataWriter writer)
@@ -124,13 +124,13 @@ namespace CodeX.Games.MCLA.RSC5
             DrawBucketMaskVlow = reader.ReadInt32();
             BoundingSphereRadius = reader.ReadSingle();
 
-            Lods = new[]
-            {
+            Lods =
+            [
                 DrawableModelsHigh.Item,
                 DrawableModelsMed.Item,
                 DrawableModelsLow.Item,
                 DrawableModelsVlow.Item
-            };
+            ];
 
             if (DrawableModelsHigh.Item != null) DrawableModelsHigh.Item.LodDist = LodDistHigh;
             if (DrawableModelsMed.Item != null) DrawableModelsMed.Item.LodDist = LodDistMed;
@@ -224,7 +224,7 @@ namespace CodeX.Games.MCLA.RSC5
 
             var txp = new TexturePack(e)
             {
-                Textures = new Dictionary<string, Texture>()
+                Textures = []
             };
 
             for (int i = 0; i < texs.Count; i++)
@@ -250,7 +250,7 @@ namespace CodeX.Games.MCLA.RSC5
         public virtual void Read(Rsc5DataReader reader)
         {
             Lod = reader.ReadBlock<Rsc5DrawableLod>();
-            Lods = new[] { Lod };
+            Lods = [Lod];
 
             if (Lod != null)
             {
@@ -268,15 +268,13 @@ namespace CodeX.Games.MCLA.RSC5
 
         public void AssignGeometryShaders()
         {
-            if (AllModels == null)
-                return;
-
+            if (AllModels == null) return;
             foreach (var model in AllModels.Cast<Rsc5DrawableModel>())
             {
                 var geoms = model?.Geometries.Items;
                 if (geoms == null) continue;
 
-                int geomcount = geoms.Length;
+                var geomcount = geoms.Length;
                 for (int i = 0; i < geomcount; i++)
                 {
                     var geom = geoms[i];
@@ -305,7 +303,7 @@ namespace CodeX.Games.MCLA.RSC5
             ShaderGroup = reader.ReadPtr<Rsc5ShaderGroup>();
             Lod = reader.ReadPtr<Rsc5DrawableLodMap>();
 
-            Lods = new[] { Lod.Item };
+            Lods = [Lod.Item];
             if (Lod.Item != null)
             {
                 Lod.Item.LodDist = 9999f;
@@ -325,9 +323,41 @@ namespace CodeX.Games.MCLA.RSC5
             throw new NotImplementedException();
         }
 
-        public void AssignGeometryShaders()
+        public void ApplyTextures(Dictionary<JenkHash, Rsc5Texture> dict)
         {
-            //Assign embedded textures to mesh for rendering
+            if (AllModels == null || dict == null) return;
+            foreach (var model in AllModels)
+            {
+                if (model?.Meshes == null) continue;
+                foreach (var mesh in model.Meshes)
+                {
+                    if (mesh?.Textures == null) continue;
+                    for (int i = 0; i < mesh.Textures.Length; i++)
+                    {
+                        var texture = mesh.Textures[i];
+                        if (texture?.Name == null) continue;
+
+                        var normalized = Rpf3Crypto.NormalizeTexName(texture.Name);
+                        var hash = JenkHash.GenHash(normalized + ".dds");
+
+                        if (dict.TryGetValue(hash, out var newTexture))
+                        {
+                            mesh.Textures[i] = newTexture;
+                            mesh.Textures[i].Name = normalized;
+                        }
+                    }
+                }
+            }
+        }
+
+        public void ApplyTextures(Rsc5TextureDictionary txd)
+        {
+            if (txd?.Dict == null) return;
+            ApplyTextures(txd.Dict);
+        }
+
+        public void AssignGeometryShaders() //Assign embedded textures to mesh for rendering
+        {
             if ((ShaderGroup.Item?.Shaders.Items != null) && (AllModels != null))
             {
                 var shaders = ShaderGroup.Item?.Shaders.Items;
@@ -459,10 +489,10 @@ namespace CodeX.Games.MCLA.RSC5
             if (geoms != null)
             {
                 var shaderMapping = ShaderMapping.Items;
-                var boundsData = (BoundingBox4[])null;
+                BoundingBox4[] boundsData = null;
+
                 if (BoundsData.Items != null && BoundsData.Items.Length > 0)
                 {
-                    //MCLA prefers Vector4's with the W component as the size of the bounding box
                     var vecs = Rpf3Crypto.Swap(BoundsData.Items);
                     boundsData = new BoundingBox4[vecs.Length];
 
@@ -485,7 +515,7 @@ namespace CodeX.Games.MCLA.RSC5
                         geom.BoundingBox = new BoundingBox(geom.AABB.Min.XYZ(), geom.AABB.Max.XYZ());
                         geom.BoundingSphere = new BoundingSphere(geom.BoundingBox.Center, geom.BoundingBox.Size.Length() * 0.5f);
 
-                        //MCLA also has NULL AABBs sometimes, so we have to calculate the bounds manually
+                        //MCLA has NULL AABBs sometimes, so we have to calculate them manually
                         if (boundsData == null)
                         {
                             geom.UpdateBounds();
@@ -494,7 +524,7 @@ namespace CodeX.Games.MCLA.RSC5
                 }
             }
 
-            Meshes = Geometries.Items;
+            Meshes = geoms;
             RenderInMainView = true;
             RenderInShadowView = true;
             RenderInEnvmapView = true;
@@ -502,14 +532,22 @@ namespace CodeX.Games.MCLA.RSC5
 
         public void Write(Rsc5DataWriter writer)
         {
-            GeometriesCount3 = Geometries.Count; //is this correct?
+            GeometriesCount3 = Geometries.Count;
             throw new NotImplementedException();
         }
 
         public override string ToString()
         {
-            var geocount = Geometries.Items?.Length ?? 0;
-            return "(" + geocount.ToString() + " geometr" + (geocount != 1 ? "ies)" : "y)");
+            if (Geometries.Count > 1)
+            {
+                var verts = 0;
+                foreach (var geo in Geometries.Items)
+                {
+                    verts += geo.VertexCount;
+                }
+                return string.Format("{0} verts, {1} geometries", verts, Geometries.Count);
+            }
+            return Geometries.Items[0].ToString();
         }
     }
 
@@ -558,10 +596,6 @@ namespace CodeX.Games.MCLA.RSC5
         public Rsc5Shader ShaderRef { get; set; }
         public ushort ShaderID { get; set; } //Read-written by parent model
         public BoundingBox4 AABB { get; set; } //Read-written by parent model
-
-        public Rsc5DrawableGeometry()
-        {
-        }
 
         public void Read(Rsc5DataReader reader)
         {
@@ -618,19 +652,21 @@ namespace CodeX.Games.MCLA.RSC5
                             var v4 = BufferUtil.ReadVector4(numArray, index + elemoffset);
                             Rpf3Crypto.WriteVector4AtIndex(v4, numArray, index + elemoffset);
                             break;
-                        case VertexElementFormat.Dec3N: //10101012
+                        case VertexElementFormat.Colour:
+                            var color = BufferUtil.ReadColour(VertexData, index + elemoffset);
+                            color = new Colour(color.B, color.G, color.R, color.A);
+                            BufferUtil.WriteColour(VertexData, index + elemoffset, ref color);
+                            break;
+                        case VertexElementFormat.Dec3N:
                             var packed = BufferUtil.ReadUint(numArray, index + elemoffset);
-                            var pv = FloatUtil.Dec3NToVector4(packed); //Convert Dec3N to Vector4
-                            var np1 = FloatUtil.Vector4ToDec3N(new Vector4(pv.Z, pv.X, pv.Y, pv.W)); //Convert Vector4 back to Dec3N with MCLA axis
+                            var pv = Rpf3Crypto.Dec3NToVector4(packed); //Convert Dec3N to Vector4
+                            var np1 = Rpf3Crypto.Vector4ToDec3N(new Vector4(pv.Z, pv.X, pv.Y, pv.W)); //Convert Vector4 back to Dec3N with MCLA axis
                             BufferUtil.WriteUint(numArray, index + elemoffset, np1);
                             break;
                         case VertexElementFormat.Half2:
                             var half2 = BufferUtil.ReadStruct<Half2>(numArray, index + elemoffset);
                             half2 = new Half2(half2.Y, half2.X);
                             BufferUtil.WriteStruct(numArray, index + elemoffset, ref half2);
-                            break;
-                        case VertexElementFormat.UShort2N:
-                            Rpf3Crypto.ReadRescaleUShort2N(numArray, index + elemoffset);
                             break;
                         default:
                             break;
@@ -656,12 +692,20 @@ namespace CodeX.Games.MCLA.RSC5
             ShaderRef = shader;
             if (shader != null)
             {
-                switch (new JenkHash(shader.ShaderName.ToString()))
+                var shaderName = shader.ShaderName.ToString().ToLower();
+                switch (new JenkHash(shaderName))
                 {
+                    case 0xD2492FB1: //CityGrass
                     case 0xE4CB95DC: //CityTerrain
-                        SetupTerrainShader(shader);
+                        SetupGrassTerrainShader(shader);
                         break;
                     case 0xDAFA8999: //CityRoad
+                    case 0x603A18C1: //CityDecal
+                    case 0x27DAEE8D: //CityGrimeDecal
+                    case 0x478552AF: //CityGroundDecalGrime
+                    case 0x4F8CB366: //CityGroundGrimeDecal
+                        SetupDiffuse2Shader(shader);
+                        break;
                     default:
                         SetupDefaultShader(shader);
                         break;
@@ -676,8 +720,7 @@ namespace CodeX.Games.MCLA.RSC5
                     case 3: ShaderBucket = ShaderBucket.Alpha1; break; //cutout
                     case 6: ShaderBucket = ShaderBucket.Alpha1; break; //water
                     case 7: ShaderBucket = ShaderBucket.Alpha1; break; //glass
-                    default:
-                        break;
+                    default: break;
                 }
             }
         }
@@ -686,11 +729,14 @@ namespace CodeX.Games.MCLA.RSC5
         {
             SetDefaultShader();
             ShaderInputs = Shader.CreateShaderInputs();
-            ShaderInputs.SetFloat(0xDF918855, 1.0f); //"BumpScale"
-            ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //"AlphaScale"
+            ShaderInputs.SetFloat(0x4D52C5FF, 1.0f); //AlphaScale
 
             if (s == null || s.Params == null) return;
-            Textures = new Texture[3];
+            Textures = new Texture[2];
+
+            var sfresnel = 0.96f;
+            var sintensitymult = 0.2f;
+            var sfalloffmult = 35.0f;
 
             for (int p = 0; p < s.Params.Length; p++)
             {
@@ -702,96 +748,137 @@ namespace CodeX.Games.MCLA.RSC5
                     {
                         switch (parm.Hash)
                         {
-                            case 0xF1FE2B71://diffusesampler
-                            case 0x50022388://platebgsampler
-                            case 0x1cf5b657://texturesamp
-                            case 0x605fcc60://distancemapsampler
+                            case 0xF1FE2B71: //diffusesampler
+                            case 0x50022388: //platebgsampler
+                            case 0x1cf5b657: //texturesamp
+                            case 0x605fcc60: //distancemapsampler
                                 Textures[0] = tex;
                                 break;
-                            case 0x46B7C64F://bumpsampler
-                            case 0x65DF0BCE://platebgbumpsampler
-                            case 0x8ac11cb0://normalsampler
+                            case 0x46B7C64F: //bumpsampler
+                            case 0x65DF0BCE: //platebgbumpsampler
+                            case 0x8AC11CB0: //normalsampler
+                            case 0x332EBE1C: //heightspecularsampler
                                 Textures[1] = tex;
-                                break;
-                            case 0x608799C6://specsampler
-                                Textures[2] = tex;
-                                break;
-                        }
-                    }
-                }
-            }
-
-            var db = s.DrawBucket;
-            if (db == 2)
-            {
-                var decalMasks = Vector4.One; //albedo, normal, params, irradiance
-                var decalMode = 1u;
-                ShaderInputs.SetFloat4(0x5C3AB6E9, decalMasks); //"DecalMasks"
-                ShaderInputs.SetUInt32(0x0188ECE8, decalMode);  //"DecalMode"
-            }
-            if (db == 3)
-            {
-                ShaderInputs.SetUInt32(0x26E8F6BB, 1); //"NormalDoubleSided"  //flip normals if they are facing away from the camera
-            }
-        }
-
-        private void SetupTerrainShader(Rsc5Shader s)
-        {
-            SetCoreShader<BlendShader>(ShaderBucket.Solid);
-            ShaderInputs = Shader.CreateShaderInputs();
-            ShaderInputs.SetFloat4(0x7CB163F5, Vector4.Zero);//"BumpScales"
-            ShaderInputs.SetFloat4(0xAD966CCC, new Vector4(1, 1, 0, 0));//"UVScaleOffset"
-            ShaderInputs.SetFloat4(0x640811D6, Vector4.One);//"UVIndices"
-            ShaderInputs.SetFloat4(0x401BDDBB, Vector4.One);//"UVLookupIndex"
-            ShaderInputs.SetFloat4(0xA83AA336, new Vector4(0.0f));//"LODColourLevels" //actually tintPaletteSelector
-
-            ShaderInputs.SetUInt32(0x9B920BD, 1); //BlendMode
-            if (s == null || s.Params == null) return;
-
-            Textures = new Texture[6]; //albedo(0-3); normal(0-3);
-            for (int p = 0; p < s.Params.Length; p++)
-            {
-                var parm = s.Params[p];
-                if (parm.Type == 0)
-                {
-                    var tex = parm.Texture;
-                    if (tex != null)
-                    {
-                        switch (parm.Hash)
-                        {
-                            case 0xd52b11df: //diffusesamplera
-                                Textures[0] = tex;
-                                break;
-                            case 0x2420afd1: //diffusesamplerb
-                                Textures[1] = tex;
-                                break;
-                            case 0x31934ab6: //diffusesamplerc
-                                Textures[2] = tex;
-                                break;
-                            case 0x3fff9563: //normalsamplera
-                                Textures[4] = tex;
-                                break;
-                            case 0x54cdbeff: //normalsamplerb
-                                Textures[5] = tex;
-                                break;
-                            case 0xa3a2dca8: //normalsamplerc
-                                Textures[6] = tex;
-                                break;
-                            default:
                                 break;
                         }
                     }
                 }
                 else
                 {
-
                     switch (parm.Hash)
                     {
-                        case 0xf6712b81://"bumpiness"
-                            ShaderInputs.SetFloat4(0x7CB163F5, new Vector4(parm.Vector.X)); //BumpScales
+                        case 0xF6712B81: //bumpiness
+                            ShaderInputs.SetFloat(0xDF918855, parm.Vector.X); //BumpScale
                             break;
-                        default:
+                        case 0x484A5EBD: //specularcolorfactor //0-1, final multiplier?
+                            sintensitymult = parm.Vector.X;
                             break;
+                        case 0x166E0FD1: //specularfactor //10-150+?, higher is shinier
+                            sfalloffmult = parm.Vector.X;
+                            break;
+                    }
+                }
+            }
+
+            ShaderInputs.SetFloat(0x57C22E45, FloatUtil.Saturate(sfalloffmult / 100.0f)); //MeshParamsMult
+            ShaderInputs.SetFloat(0xDA9702A9, FloatUtil.Saturate(sintensitymult * (1.0f - ((sfresnel - 0.1f) / 0.896f)))); //MeshMetallicity
+
+            var db = s.DrawBucket;
+            if (db == 3)
+            {
+                ShaderInputs.SetUInt32(0x26E8F6BB, 1); //NormalDoubleSided, flip normals if they are facing away from the camera
+            }
+        }
+
+        private void SetupDiffuse2Shader(Rsc5Shader s)
+        {
+            SetCoreShader<BlendShader>(ShaderBucket.Solid);
+            ShaderInputs = Shader.CreateShaderInputs();
+            ShaderInputs.SetUInt32(0x9B920BD, 27); //BlendMode
+
+            if (s == null || s.Params == null) return;
+            Textures = new Texture[2];
+
+            for (int p = 0; p < s.Params.Length; p++)
+            {
+                var parm = s.Params[p];
+                if (parm.Type == 0)
+                {
+                    var tex = parm.Texture;
+                    if (tex != null)
+                    {
+                        switch (parm.Hash)
+                        {
+                            case 0xF1FE2B71: //diffusesampler
+                            case 0x2b5170fd: //texturesampler
+                            case 0x3e19076b: //detailmapsampler
+                            case 0x605fcc60: //distancemapsampler
+                                Textures[0] = tex;
+                                break;
+                            case 0xA79AEEC0: //decalsampler
+                                Textures[1] = tex;
+                                break;
+                        }
+                    }
+                }
+                else
+                {
+                    switch (parm.Hash)
+                    {
+                        case 0xF6712B81: //bumpiness
+                            ShaderInputs.SetFloat4(0x7CB163F5, parm.Vector); //BumpScales
+                            break;
+                    }
+                }
+            }
+        }
+
+        private void SetupGrassTerrainShader(Rsc5Shader s)
+        {
+            SetCoreShader<BlendShader>(ShaderBucket.Solid);
+            ShaderInputs = Shader.CreateShaderInputs();
+            ShaderInputs.SetUInt32(0x9B920BD, 28); //BlendMode
+
+            if (s.ShaderName.ToString() == "CityTerrain")
+            {
+                ShaderInputs.SetFloat4(0x7CB163F5, new Vector4(1.5f)); //BumpScales
+            }
+
+            if (s == null || s.Params == null) return;
+            Textures = new Texture[7];
+
+            for (int p = 0; p < s.Params.Length; p++)
+            {
+                var parm = s.Params[p];
+                if (parm.Type == 0)
+                {
+                    var tex = parm.Texture;
+                    if (tex != null)
+                    {
+                        switch (parm.Hash)
+                        {
+                            case 0xC9A79FED: //diffusesamplera
+                                Textures[0] = tex;
+                                break;
+                            case 0xF7357B08: //diffusesamplerb
+                                Textures[1] = tex;
+                                break;
+                            case 0xA4CFD63A: //diffusesamplerc
+                                Textures[2] = tex;
+                                break;
+                            case 0x8BFCEF8D: //channelmapsampler
+                                Textures[3] = tex;
+                                break;
+                            case 0xBE97CA14: //normalsamplera
+                                Textures[4] = tex;
+                                break;
+                            case 0xCCDCE69E: //normalsamplerb
+                                Textures[5] = tex;
+                                break;
+                            case 0xA8419D68: //normalsamplerc
+                                Textures[6] = tex;
+                                break;
+                        }
                     }
                 }
             }
@@ -1004,47 +1091,46 @@ namespace CodeX.Games.MCLA.RSC5
 
         private static VertexElementFormat GetEngineElementFormat(Rsc5VertexComponentType t)
         {
-            switch (t)
+            return t switch
             {
-                case Rsc5VertexComponentType.Half2: return VertexElementFormat.Half2;
-                case Rsc5VertexComponentType.Float: return VertexElementFormat.Float;
-                case Rsc5VertexComponentType.Half4: return VertexElementFormat.Half4;
-                case Rsc5VertexComponentType.FloatUnk: return VertexElementFormat.Float;
-                case Rsc5VertexComponentType.Float2: return VertexElementFormat.Float2;
-                case Rsc5VertexComponentType.Float3: return VertexElementFormat.Float3;
-                case Rsc5VertexComponentType.Float4: return VertexElementFormat.Float4;
-                case Rsc5VertexComponentType.UByte4: return VertexElementFormat.UByte4;
-                case Rsc5VertexComponentType.Colour: return VertexElementFormat.Colour;
-                case Rsc5VertexComponentType.Dec3N: return VertexElementFormat.Dec3N;
-                default:
-                    return VertexElementFormat.None;
-            }
+                Rsc5VertexComponentType.Half2 => VertexElementFormat.Half2,
+                Rsc5VertexComponentType.Float => VertexElementFormat.Float,
+                Rsc5VertexComponentType.Half4 => VertexElementFormat.Half4,
+                Rsc5VertexComponentType.FloatUnk => VertexElementFormat.Float,
+                Rsc5VertexComponentType.Float2 => VertexElementFormat.Float2,
+                Rsc5VertexComponentType.Float3 => VertexElementFormat.Float3,
+                Rsc5VertexComponentType.Float4 => VertexElementFormat.Float4,
+                Rsc5VertexComponentType.UByte4 => VertexElementFormat.UByte4,
+                Rsc5VertexComponentType.Colour => VertexElementFormat.Colour,
+                Rsc5VertexComponentType.Dec3N => VertexElementFormat.Dec3N,
+                Rsc5VertexComponentType.UShort2N => VertexElementFormat.Short2N,
+                _ => VertexElementFormat.None,
+            };
         }
 
         public byte GetEngineSemanticIndex(Rsc5VertexElementSemantic s)
         {
-            switch (s)
+            return s switch
             {
-                default:
-                case Rsc5VertexElementSemantic.Position: return 0;
-                case Rsc5VertexElementSemantic.BlendWeights: return 1;
-                case Rsc5VertexElementSemantic.BlendIndices: return 2;
-                case Rsc5VertexElementSemantic.Normal: return 3;
-                case Rsc5VertexElementSemantic.Colour0: return 4;
-                case Rsc5VertexElementSemantic.Colour1: return 4;
-                case Rsc5VertexElementSemantic.TexCoord0: return 5;
-                case Rsc5VertexElementSemantic.TexCoord1: return 5;
-                case Rsc5VertexElementSemantic.TexCoord2: return 5;
-                case Rsc5VertexElementSemantic.TexCoord3: return 5;
-                case Rsc5VertexElementSemantic.TexCoord4: return 5;
-                case Rsc5VertexElementSemantic.TexCoord5: return 5;
-                case Rsc5VertexElementSemantic.TexCoord6: return 5;
-                case Rsc5VertexElementSemantic.TexCoord7: return 5;
-                case Rsc5VertexElementSemantic.Tangent0: return 6;
-                case Rsc5VertexElementSemantic.Tangent1: return 6;
-                case Rsc5VertexElementSemantic.Binormal0: return 7;
-                case Rsc5VertexElementSemantic.Binormal1: return 7;
-            }
+                Rsc5VertexElementSemantic.BlendWeights => 1,
+                Rsc5VertexElementSemantic.BlendIndices => 2,
+                Rsc5VertexElementSemantic.Normal => 3,
+                Rsc5VertexElementSemantic.Colour0 => 4,
+                Rsc5VertexElementSemantic.Colour1 => 4,
+                Rsc5VertexElementSemantic.TexCoord0 => 5,
+                Rsc5VertexElementSemantic.TexCoord1 => 5,
+                Rsc5VertexElementSemantic.TexCoord2 => 5,
+                Rsc5VertexElementSemantic.TexCoord3 => 5,
+                Rsc5VertexElementSemantic.TexCoord4 => 5,
+                Rsc5VertexElementSemantic.TexCoord5 => 5,
+                Rsc5VertexElementSemantic.TexCoord6 => 5,
+                Rsc5VertexElementSemantic.TexCoord7 => 5,
+                Rsc5VertexElementSemantic.Tangent0 => 6,
+                Rsc5VertexElementSemantic.Tangent1 => 6,
+                Rsc5VertexElementSemantic.Binormal0 => 7,
+                Rsc5VertexElementSemantic.Binormal1 => 7,
+                _ => 0,
+            };
         }
 
 
@@ -1105,45 +1191,45 @@ namespace CodeX.Games.MCLA.RSC5
     {
         public static int GetSizeInBytes(Rsc5VertexComponentType type)
         {
-            switch (type)
+            return type switch
             {
-                case Rsc5VertexComponentType.Nothing: return 2; //Half
-                case Rsc5VertexComponentType.Half2: return 4; //Half2
-                case Rsc5VertexComponentType.Float: return 6; //Half3
-                case Rsc5VertexComponentType.Half4: return 8; //Half4
-                case Rsc5VertexComponentType.FloatUnk: return 4; //Float
-                case Rsc5VertexComponentType.Float2: return 8; //Float2
-                case Rsc5VertexComponentType.Float3: return 12; //Float3
-                case Rsc5VertexComponentType.Float4: return 16; //Float4
-                case Rsc5VertexComponentType.UByte4: return 4; //UByte4
-                case Rsc5VertexComponentType.Colour: return 4; //Color
-                case Rsc5VertexComponentType.Dec3N: return 4; //PackedNormal
-                case Rsc5VertexComponentType.Unk1: return 2; //Short_UNorm
-                case Rsc5VertexComponentType.Unk2: return 4; //Short2_Unorm
-                case Rsc5VertexComponentType.Unk3: return 2; //Byte2_UNorm
-                case Rsc5VertexComponentType.UShort2N: return 4; //Short2
-                case Rsc5VertexComponentType.Unk5: return 8; //Short4
-                default: return 0;
-            }
+                Rsc5VertexComponentType.Nothing => 2, //Half
+                Rsc5VertexComponentType.Half2 => 4, //Half2
+                Rsc5VertexComponentType.Float => 6, //Half3
+                Rsc5VertexComponentType.Half4 => 8, //Half4
+                Rsc5VertexComponentType.FloatUnk => 4, //Float
+                Rsc5VertexComponentType.Float2 => 8, //Float2
+                Rsc5VertexComponentType.Float3 => 12, //Float3
+                Rsc5VertexComponentType.Float4 => 16, //Float4
+                Rsc5VertexComponentType.UByte4 => 4, //UByte4
+                Rsc5VertexComponentType.Colour => 4, //Color
+                Rsc5VertexComponentType.Dec3N => 4, //PackedNormal
+                Rsc5VertexComponentType.Unk1 => 2, //Short_UNorm
+                Rsc5VertexComponentType.Unk2 => 4, //Short2_Unorm
+                Rsc5VertexComponentType.Unk3 => 2, //Byte2_UNorm
+                Rsc5VertexComponentType.UShort2N => 4, //Short2
+                Rsc5VertexComponentType.Unk5 => 8, //Short4
+                _ => 0,
+            };
         }
 
         public static int GetComponentCount(Rsc5VertexComponentType type)
         {
-            switch (type)
+            return type switch
             {
-                case Rsc5VertexComponentType.Nothing: return 0;
-                case Rsc5VertexComponentType.Float: return 1;
-                case Rsc5VertexComponentType.Float2: return 2;
-                case Rsc5VertexComponentType.Float3: return 3;
-                case Rsc5VertexComponentType.Float4: return 4;
-                case Rsc5VertexComponentType.Colour: return 4;
-                case Rsc5VertexComponentType.UByte4: return 4;
-                case Rsc5VertexComponentType.Half2: return 2;
-                case Rsc5VertexComponentType.Half4: return 4;
-                case Rsc5VertexComponentType.Dec3N: return 3;
-                case Rsc5VertexComponentType.UShort2N: return 2;
-                default: return 0;
-            }
+                Rsc5VertexComponentType.Nothing => 0,
+                Rsc5VertexComponentType.Float => 1,
+                Rsc5VertexComponentType.Float2 => 2,
+                Rsc5VertexComponentType.Float3 => 3,
+                Rsc5VertexComponentType.Float4 => 4,
+                Rsc5VertexComponentType.Colour => 4,
+                Rsc5VertexComponentType.UByte4 => 4,
+                Rsc5VertexComponentType.Half2 => 2,
+                Rsc5VertexComponentType.Half4 => 4,
+                Rsc5VertexComponentType.Dec3N => 3,
+                Rsc5VertexComponentType.UShort2N => 2,
+                _ => 0,
+            };
         }
     }
 
@@ -1255,7 +1341,7 @@ namespace CodeX.Games.MCLA.RSC5
 
             if (Shaders.Items != null)
             {
-                XapbFile.Textures ??= new List<Rsc5Texture>();
+                XapbFile.Textures ??= [];
                 foreach (var shader in Shaders.Items)
                 {
                     if (shader.Params == null) continue;
@@ -1327,9 +1413,9 @@ namespace CodeX.Games.MCLA.RSC5
             Unknown7 = reader.ReadUInt32();
 
             var pc = ParamsCount;
-            uint[] ptrs = Rpf3Crypto.Swap(reader.ReadArray<uint>(pc, ParamsDataPtr));
-            byte[] types = reader.ReadArray<byte>(pc, ParamsTypesPtr);
-            uint[] hashes = Rpf3Crypto.Swap(reader.ReadArray<uint>(pc, ParamsNamesPtr));
+            var ptrs = Rpf3Crypto.Swap(reader.ReadArray<uint>(pc, ParamsDataPtr));
+            var types = reader.ReadArray<byte>(pc, ParamsTypesPtr);
+            var hashes = Rpf3Crypto.Swap(reader.ReadArray<uint>(pc, ParamsNamesPtr));
 
             Params = new Rsc5ShaderParameter[pc];
             for (uint i = 0; i < pc; i++)

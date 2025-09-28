@@ -14,6 +14,8 @@ namespace CodeX.Games.MCLA.RSC5
         public Rsc5Arr<JenkHash> HashTable { get; set; }
         public Rsc5PtrArr<Rsc5Texture> Textures { get; set; }
 
+        public Dictionary<JenkHash, Rsc5Texture> Dict = [];
+
         public override void Read(Rsc5DataReader reader)
         {
             base.Read(reader);
@@ -22,6 +24,17 @@ namespace CodeX.Games.MCLA.RSC5
             UsageCount = reader.ReadUInt32();
             HashTable = reader.ReadArr<JenkHash>();
             Textures = reader.ReadPtrArr<Rsc5Texture>();
+
+            if (Textures.Items != null)
+            {
+                var imax = Math.Min(HashTable.Items.Length, Textures.Items.Length);
+                for (int i = 0; i < Textures.Items.Length; i++)
+                {
+                    var t = Textures.Items[i];
+                    var h = (i < imax) ? HashTable.Items[i] : 0;
+                    Dict[h] = t;
+                }
+            }
         }
 
         public override void Write(Rsc5DataWriter writer)
@@ -62,7 +75,7 @@ namespace CodeX.Games.MCLA.RSC5
     public class Rsc5Texture : Rsc5TextureBase
     {
         public override ulong BlockLength => 80;
-        public Rsc5TextureType TextureType { get; set; }   // 0 = normal, 1 = cube, 3 = volume
+        public Rsc5TextureType TextureType { get; set; } //0 = normal, 1 = cube, 3 = volume
         public float ColorExpR { get; set; } = 1.0f; //m_ColorExprR
         public float ColorExpG { get; set; } = 1.0f; //m_ColorExprG
         public float ColorExpB { get; set; } = 1.0f; //m_ColorExprB
@@ -91,8 +104,8 @@ namespace CodeX.Games.MCLA.RSC5
 
             reader.Position = D3DBaseTexture.Item.FilePosition + 0x20;
             var d3dValue = reader.ReadInt32();
-            var virtualW = GetVirtualSize(Width);
-            var virtualH = GetVirtualSize(Height);
+            var virtualW = Rpf3Crypto.GetVirtualSize(Width);
+            var virtualH = Rpf3Crypto.GetVirtualSize(Height);
             reader.Position = (ulong)Rpf3Crypto.GetBaseAdressFromDirect3D(d3dValue, reader);
 
             Format = ConvertToEngineFormat((Rsc5TextureFormat)(d3dValue & byte.MaxValue));
@@ -127,39 +140,28 @@ namespace CodeX.Games.MCLA.RSC5
             return num;
         }
 
-        public static int GetVirtualSize(int size)
-        {
-            if ((size % 128 != 0) && size < 128)
-            {
-                return 128;
-            }
-            return size;
-        }
-
         public static TextureFormat ConvertToEngineFormat(Rsc5TextureFormat f)
         {
-            switch (f)
+            return f switch
             {
-                default:
-                case Rsc5TextureFormat.D3DFMT_DXT1: return TextureFormat.BC1;
-                case Rsc5TextureFormat.D3DFMT_DXT3: return TextureFormat.BC2;
-                case Rsc5TextureFormat.D3DFMT_DXT5: return TextureFormat.BC3;
-                case Rsc5TextureFormat.D3DFMT_A8R8G8B8: return TextureFormat.A8R8G8B8;
-                case Rsc5TextureFormat.D3DFMT_L8: return TextureFormat.L8;
-            }
+                Rsc5TextureFormat.D3DFMT_DXT3 => TextureFormat.BC2,
+                Rsc5TextureFormat.D3DFMT_DXT5 => TextureFormat.BC3,
+                Rsc5TextureFormat.D3DFMT_A8R8G8B8 => TextureFormat.A8R8G8B8,
+                Rsc5TextureFormat.D3DFMT_L8 => TextureFormat.L8,
+                _ => TextureFormat.BC1,
+            };
         }
 
         public static Rsc5TextureFormat ConvertToRsc5Format(TextureFormat f)
         {
-            switch (f)
+            return f switch
             {
-                default:
-                case TextureFormat.BC1: return Rsc5TextureFormat.D3DFMT_DXT1;
-                case TextureFormat.BC2: return Rsc5TextureFormat.D3DFMT_DXT3;
-                case TextureFormat.BC3: return Rsc5TextureFormat.D3DFMT_DXT5;
-                case TextureFormat.A8R8G8B8: return Rsc5TextureFormat.D3DFMT_A8R8G8B8;
-                case TextureFormat.L8: return Rsc5TextureFormat.D3DFMT_L8;
-            }
+                TextureFormat.BC2 => Rsc5TextureFormat.D3DFMT_DXT3,
+                TextureFormat.BC3 => Rsc5TextureFormat.D3DFMT_DXT5,
+                TextureFormat.A8R8G8B8 => Rsc5TextureFormat.D3DFMT_A8R8G8B8,
+                TextureFormat.L8 => Rsc5TextureFormat.D3DFMT_L8,
+                _ => Rsc5TextureFormat.D3DFMT_DXT1,
+            };
         }
 
         public override string ToString()
@@ -221,12 +223,6 @@ namespace CodeX.Games.MCLA.RSC5
         public bool IsPhysical => true;
         public byte[] Data { get; set; }
 
-        public Rsc5TextureData() { }
-        public Rsc5TextureData(ulong length)
-        {
-            BlockLength = length;
-        }
-
         public void Read(Rsc5DataReader reader)
         {
             Data = reader.ReadBytes((int)BlockLength);
@@ -234,7 +230,7 @@ namespace CodeX.Games.MCLA.RSC5
 
         public void Write(Rsc5DataWriter writer)
         {
-            throw new NotImplementedException();
+            writer.WriteBytes(Data);
         }
     }
 

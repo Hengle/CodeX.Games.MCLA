@@ -1,20 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net7.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows7.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <Platforms>AnyCPU;x86</Platforms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Ionic.Zlib" Version="1.9.1.5" />
+    <PackageReference Include="SharpZipLib" Version="1.4.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Core\CodeX.Core.csproj" />
-    <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Forms\CodeX.Forms.csproj" />
-    <ProjectReference Include="..\..\CodeX-026\CodeX-main\CodeX.Games.MP3\CodeX.Games.MP3.csproj" />
+    <ProjectReference Include="..\CodeX.Core\CodeX.Core.csproj" />
+    <ProjectReference Include="..\CodeX.Forms\CodeX.Forms.csproj" />
   </ItemGroup>
 
   <ItemGroup>

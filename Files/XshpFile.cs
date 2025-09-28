@@ -1,5 +1,4 @@
 ﻿using CodeX.Core.Engine;
-using CodeX.Core.Numerics;
 using CodeX.Core.Utilities;
 using CodeX.Forms.Utilities;
 using CodeX.Games.MCLA.RPF3;
@@ -7,24 +6,15 @@ using CodeX.Games.MCLA.RSC5;
 
 namespace CodeX.Games.MCLA.Files
 {
-    public class XshpFile : PiecePack
+    public class XshpFile(Rpf3FileEntry file) : PiecePack(file)
     {
-        public Rsc5Bitmap Bitmap;
-        public Rsc5City City;
-        public Rsc5TextureDictionary CityTextures;
+        public Rsc5Bitmap Bitmap = null;
+        public Rsc5City City = null;
+        public Rsc5TextureDictionary CityTextures = null;
 
-        public JenkHash Hash;
-        public string Name;
-
-        public XshpFile(Rpf3FileEntry file) : base(file)
-        {
-            City = null;
-            CityTextures = null;
-            Bitmap = null;
-
-            Name = file?.NameLower;
-            Hash = JenkHash.GenHash(file?.NameLower ?? "");
-        }
+        public JenkHash Hash = JenkHash.GenHash(file?.NameLower ?? "");
+        public string Name = file?.NameLower;
+        public bool DependenciesLoaded = false;
 
         public override void Load(byte[] data)
         {
@@ -37,25 +27,28 @@ namespace CodeX.Games.MCLA.Files
             var ident = (Rsc5XshpType)r.ReadUInt32();
             r.Position = Rpf3Crypto.VIRTUAL_BASE;
 
-            if (ident == Rsc5XshpType.CITY)
+            switch (ident)
             {
-                City = r.ReadBlock<Rsc5City>();
-            }
-            else if (ident == Rsc5XshpType.BITMAP_VINYL || ident == Rsc5XshpType.BITMAP_TIRE)
-            {
-                Bitmap = r.ReadBlock<Rsc5Bitmap>();
-            }
-            else if (ident == Rsc5XshpType.CITY_TEXTURE)
-            {
-                CityTextures = r.ReadBlock<Rsc5TextureDictionary>();
+                case Rsc5XshpType.BITMAP_VINYL:
+                case Rsc5XshpType.BITMAP_TIRE:
+                    Bitmap = r.ReadBlock<Rsc5Bitmap>();
+                    break;
+                case Rsc5XshpType.CITY:
+                    City = r.ReadBlock<Rsc5City>();
+                    break;
+                case Rsc5XshpType.CITY_TEXTURE:
+                    CityTextures = r.ReadBlock<Rsc5TextureDictionary>();
+                    break;
+                default:
+                    break;
             }
 
-            Pieces = new Dictionary<JenkHash, Piece>();
+            Pieces = [];
             if (Bitmap != null)
             {
                 var tex1 = Bitmap?.Texture1.Item;
                 var tex2 = Bitmap?.Texture2.Item;
-                var txp = new TexturePack(e) { Textures = new Dictionary<string, Texture>() };
+                var txp = new TexturePack(e) { Textures = [] };
 
                 if (tex1 != null)
                 {
@@ -79,25 +72,8 @@ namespace CodeX.Games.MCLA.Files
             else if (City != null)
             {
                 var drawable = City.Drawable.Item;
-                var dict = City.Dictionary.Item;
-                var txp = new TexturePack(e) { Textures = new Dictionary<string, Texture>() };
-
-                if (dict != null)
-                {
-                    for (int i = 0; i < dict.Textures.Items.Length; i++)
-                    {
-                        var tex = dict.Textures.Items[i];
-                        var hash = dict.HashTable.Items[i];
-
-                        tex.Name ??= hash.ToString();
-                        txp.Textures[hash.ToString()] = tex;
-                        tex.Pack = txp;
-                    }
-                }
-
                 if (drawable != null)
                 {
-                    drawable.TexturePack = txp;
                     Piece = drawable;
                     Pieces.Add(e.ShortNameLower, drawable);
                 }
@@ -106,7 +82,7 @@ namespace CodeX.Games.MCLA.Files
             {
                 var hashes = CityTextures.HashTable.Items;
                 var textures = CityTextures.Textures.Items;
-                var txp = new TexturePack(e) { Textures = new Dictionary<string, Texture>() };
+                var txp = new TexturePack(e) { Textures = [] };
 
                 if (textures != null && hashes != null)
                 {

@@ -37,12 +37,12 @@ namespace CodeX.Games.MCLA
 
         public override Level GetMapLevel()
         {
-            return null;
+            return new MCLAMap(this);
         }
 
         public override Setting[] GetMapSettings()
         {
-            return new[] { MCLAMap.EnabledSetting, MCLAMap.StartPositionSetting };
+            return [MCLAMap.EnabledSetting, MCLAMap.StartPositionSetting];
         }
     }
 }

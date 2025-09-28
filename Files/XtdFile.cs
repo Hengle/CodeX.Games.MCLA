@@ -4,14 +4,9 @@ using CodeX.Games.MCLA.RSC5;
 
 namespace CodeX.Games.MCLA.Files
 {
-    class XtdFile : TexturePack
+    class XtdFile(Rpf3FileEntry file) : TexturePack(file)
     {
-        public Rsc5TextureDictionary TextureDictionary;
-
-        public XtdFile(Rpf3FileEntry file) : base(file)
-        {
-            TextureDictionary = null;
-        }
+        public Rsc5TextureDictionary TextureDictionary = null;
 
         public override void Load(byte[] data)
         {
@@ -19,7 +14,7 @@ namespace CodeX.Games.MCLA.Files
             var r = new Rsc5DataReader(e, data, Core.Utilities.DataEndianess.BigEndian);
 
             TextureDictionary = r.ReadBlock<Rsc5TextureDictionary>();
-            Textures = new Dictionary<string, Texture>();
+            Textures = [];
 
             if (TextureDictionary?.Textures.Items != null)
             {
@@ -37,7 +32,6 @@ namespace CodeX.Games.MCLA.Files
 
         public override void BuildFromTextureList(List<Texture> textures)
         {
-            //TODO: build TextureDictionary object
             base.BuildFromTextureList(textures);
         }
     }

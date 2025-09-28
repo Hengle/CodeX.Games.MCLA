@@ -1,9 +1,8 @@
-﻿using Ionic.Zlib;
-using CodeX.Core.Engine;
+﻿using CodeX.Core.Engine;
 using CodeX.Core.Utilities;
 using static CodeX.Games.MCLA.RPF3.Rpf3Crypto;
-using TC = System.ComponentModel.TypeConverterAttribute;
 using EXP = System.ComponentModel.ExpandableObjectConverter;
+using TC = System.ComponentModel.TypeConverterAttribute;
 
 namespace CodeX.Games.MCLA.RPF3
 {
@@ -69,7 +68,7 @@ namespace CodeX.Games.MCLA.RPF3
             }
 
             var entriesrdr = new BinaryReader(new MemoryStream(entriesdata));
-            AllEntries = new List<GameArchiveEntry>();
+            AllEntries = [];
 
             for (uint i = 0; i < EntryCount; i++)
             {
@@ -80,7 +79,7 @@ namespace CodeX.Games.MCLA.RPF3
                 {
                     br.BaseStream.Position = e.Offset;
                     var data = br.ReadBytes((int)entry.Size);
-                    var temp = BufferUtil.DecompressDeflate(data, (int)entry.Size);
+                    var temp = DecompressDeflate(data, (int)entry.Size);
                     var dr = new BinaryReader(new MemoryStream(temp));
 
                     if (dr.ReadUInt32() == 860246098) //'RPF3'
@@ -564,7 +563,7 @@ namespace CodeX.Games.MCLA.RPF3
                     var uncompressedSize = br2.ReadUInt32();
                     var uncompressedData = br2.ReadBytes((int)uncompressedSize);
                     var decrypted = DecryptAES(uncompressedData);
-                    var decompressed = ZlibStream.UncompressBuffer(decrypted);
+                    var decompressed = DecompressZlib(decrypted);
 
                     var buffer = new byte[24 + 4 + decompressed.Length];
                     Buffer.BlockCopy(header, 0, buffer, 0, header.Length);
@@ -572,10 +571,7 @@ namespace CodeX.Games.MCLA.RPF3
                     Buffer.BlockCopy(decompressed, 0, buffer, 28, decompressed.Length);
                     return buffer;
                 }
-                catch
-                {
-
-                }
+                catch { }
             }
 
             if (!rentry.IsResource)
@@ -583,7 +579,7 @@ namespace CodeX.Games.MCLA.RPF3
                 if (!rentry.IsCompressed)
                     return data;
                 else
-                    return BufferUtil.DecompressDeflate(data, (int)rentry.Size);
+                    return DecompressDeflate(data, (int)rentry.Size);
             }
 
             //Read as resource
@@ -1063,7 +1059,7 @@ namespace CodeX.Games.MCLA.RPF3
             var len = br.ReadInt32();
             byte[] data = br.ReadBytes(len);
             int dLen = GetPhysicalSize() + GetVirtualSize();
-            return BufferUtil.DecompressLZX(data, dLen);
+            return DecompressLZX(data, dLen);
         }
 
         public override string ToString()
@@ -1076,14 +1072,19 @@ namespace CodeX.Games.MCLA.RPF3
     {
         None = 0,
         BitMap = 1, //xshp
-        Animation,
+        Animation, //xbtm
         Texture = 9, //xtd
         Flash = 27, //xsf
         Fragment = 63, //xft
         Drawable = 102 //unknown
 
+        //xcs, city sector (mcCitySector)
         //xst, stringtable
-        //xapk, animations
+        //xapk, animation pack
         //xprp? //also in rdr1
+        //xal? ambient layout?
+        //xaa? avoid anim?
+        //xmd? metadata?
+        //xdr? drawable?
     }
 }

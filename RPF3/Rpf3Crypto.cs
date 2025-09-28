@@ -1,9 +1,13 @@
-﻿using System.Numerics;
-using System.Security.Cryptography;
-using CodeX.Core.Engine;
+﻿using CodeX.Core.Engine;
 using CodeX.Core.Numerics;
 using CodeX.Core.Utilities;
 using CodeX.Games.MCLA.RSC5;
+using System.Numerics;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using ICSharpCode.SharpZipLib.Zip.Compression;
+using MI = System.Runtime.CompilerServices.MethodImplAttribute;
+using MO = System.Runtime.CompilerServices.MethodImplOptions;
 
 namespace CodeX.Games.MCLA.RPF3
 {
@@ -20,13 +24,13 @@ namespace CodeX.Games.MCLA.RPF3
         };
 
         static Aes AesAlg;
-        static readonly byte[] AES_KEY = new byte[32]
-        {
+        static readonly byte[] AES_KEY =
+        [
             0xAF, 0x7C, 0xD2, 0xE9, 0xFA, 0xAA, 0x45, 0xFD,
             0x97, 0x28, 0xAC, 0x24, 0x7D, 0xD0, 0xCE, 0x5E,
             0xD6, 0xE4, 0xA1, 0x82, 0xFF, 0xE2, 0x41, 0xDB,
             0x8F, 0xF0, 0x70, 0x3B, 0x62, 0x9C, 0x47, 0x85
-        };
+        ];
 
         public static bool Init()
         {
@@ -77,9 +81,54 @@ namespace CodeX.Games.MCLA.RPF3
             {
                 var encryptor = rijndael.CreateEncryptor();
                 for (var roundIndex = 0; roundIndex < 16; roundIndex++)
+                {
                     encryptor.TransformBlock(buffer, 0, length, buffer, 0);
+                }
             }
             return buffer;
+        }
+
+        public static byte[] DecompressDeflate(byte[] data, int decompSize, bool noHeader = true)
+        {
+            var buffer = new byte[decompSize];
+            var inflater = new Inflater(noHeader);
+            inflater.SetInput(data);
+            inflater.Inflate(buffer);
+            return buffer;
+        }
+
+        public static byte[] DecompressZlib(byte[] compressed)
+        {
+            var inflater = new Inflater(false);
+            inflater.SetInput(compressed);
+
+            using var ms = new MemoryStream();
+            var buffer = new byte[4096];
+
+            while (!inflater.IsFinished)
+            {
+                int count = inflater.Inflate(buffer);
+                if (count <= 0)
+                    break;
+                ms.Write(buffer, 0, count);
+            }
+            return ms.ToArray();
+        }
+
+        public static byte[] DecompressLZX(byte[] compressedData, int dLength)
+        {
+            var dst = new byte[dLength];
+            var length = dst.Length;
+            _ = XCompress.LZXDecompress(compressedData, compressedData.Length, dst, ref length);
+            return dst;
+        }
+
+        public static string NormalizeTexName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return string.Empty;
+            var n = name.ToLowerInvariant();
+            if (n.EndsWith(".dds")) n = n[..^4];
+            return n;
         }
 
         public static bool IsVirtualBase(int value)
@@ -522,33 +571,48 @@ namespace CodeX.Games.MCLA.RPF3
             }
         }
 
-        ///<summary>
-        ///Rescales <see cref="CodeX.Core.Numerics.Half2" /> values
-        ///</summary>
-        ///<param name="val">The Half2 value to be rescaled.</param>
-        ///<param name="scale">The scaling factor.</param>
-        ///<returns>A new <see cref="Vector2" /> with the rescaled values.</returns>
-        public static Vector2 RescaleHalf2(Half2 val, float scale)
+        [MI(MO.AggressiveInlining)]
+        public static Vector4 Dec3NToVector4(uint u)
         {
-            return new Half2((float)val.X * scale, (float)val.Y * scale);
+            var ux = (int)((u & 0x3FF) << 22);
+            var uy = (int)(((u >> 10) & 0x3FF) << 22);
+            var uz = (int)(((u >> 20) & 0x3FF) << 22);
+            var uw = (int)u;
+            var fx = (float)(ux >> 22);
+            var fy = (float)(uy >> 22);
+            var fz = (float)(uz >> 22);
+            var fw = (float)(uw >> 30);
+            var scale = 0.001956947162f;
+            var v = new Vector4(fx * scale, fy * scale, fz * scale, fw);
+            return v;
         }
 
-        ///<summary>
-        ///Reads UShort2N array and rescales values depending of the LOD level
-        ///</summary>
-        ///<param name="buffer">The buffer containing the UShort2N values.</param>
-        ///<param name="offset">The offset in the buffer where the UShort2N values start.</param>
-        ///<returns>The rescaled float array.</returns>
-        public static float[] ReadRescaleUShort2N(byte[] buffer, int offset)
+        [MI(MO.AggressiveInlining)]
+        public static uint Vector4ToDec3N(in Vector4 v)
         {
-            var xBuf = BufferUtil.ReadArray<byte>(buffer, offset, 2);
-            var yBuf = BufferUtil.ReadArray<byte>(buffer, offset + 2, 2);
-            var xVal = BitConverter.ToUInt16(xBuf, 0) * 3.05185094e-005f;
-            var yVal = BitConverter.ToUInt16(yBuf, 0) * 3.05185094e-005f;
-            var values = new float[2] { xVal, yVal };
-            BufferUtil.WriteArray(buffer, offset, BitConverter.GetBytes((ushort)(xVal / 3.05185094e-005f)));
-            BufferUtil.WriteArray(buffer, offset + 2, BitConverter.GetBytes((ushort)(yVal / 3.05185094e-005f)));
-            return values;
+            var sx = (v.X >= 0.0f);
+            var sy = (v.Y >= 0.0f);
+            var sz = (v.Z >= 0.0f);
+            var sw = (v.W >= 0.0f);
+            var x = Math.Min((uint)(Math.Abs(v.X) * 511.0f), 511);
+            var y = Math.Min((uint)(Math.Abs(v.Y) * 511.0f), 511);
+            var z = Math.Min((uint)(Math.Abs(v.Z) * 511.0f), 511);
+            var w = (v.W == 0.0f) ? 0 : (v.W == 1.0f) ? 1 : (v.W == -1.0f) ? 2 : 3;
+            var ux = ((sx ? x : ~x) & 0x1FF) + (sx ? 0x200 : 0);
+            var uy = ((sy ? y : ~y) & 0x1FF) + (sy ? 0x200 : 0);
+            var uz = ((sz ? z : ~z) & 0x1FF) + (sz ? 0x200 : 0);
+            var uw = ((sw ? w : ~w) & 0x3) + (sw ? 0x200 : 0);
+            var u = ux + (uy << 10) + (uz << 20) + (uw << 30);
+            return (uint)u;
+        }
+
+        public static int GetVirtualSize(int size)
+        {
+            if ((size % 128 != 0) && size < 128)
+            {
+                return 128;
+            }
+            return size;
         }
 
         public static byte[] UnswizzleXbox360Data(byte[] data, int width, int height, TextureFormat format)
@@ -572,16 +636,6 @@ namespace CodeX.Games.MCLA.RPF3
                     throw new NotImplementedException("Unsupported format for compression");
             }
 
-            //Calculate block dimensions
-            static int getVirtualSize(int size)
-            {
-                if ((size % 128 != 0) && size < 128)
-                {
-                    return 128;
-                }
-                return size;
-            }
-
             //Reverse every two bytes in the texture data
             for (int i = 0; i < data.Length; i += 2)
             {
@@ -592,8 +646,8 @@ namespace CodeX.Games.MCLA.RPF3
             }
 
             //Calculate virtual block dimensions
-            var virtualWidth = getVirtualSize(width);
-            var virtualHeight = getVirtualSize(height);
+            var virtualWidth = GetVirtualSize(width);
+            var virtualHeight = GetVirtualSize(height);
             var virtualBlockWidth = virtualWidth / blockSizeRow;
             var virtualBlockHeight = virtualHeight / blockSizeRow;
             var unswizzledBuffer = new byte[data.Length];
@@ -670,5 +724,11 @@ namespace CodeX.Games.MCLA.RPF3
 
             return macro + micro + ((offsetT & 16) >> 4);
         }
+    }
+
+    public static class XCompress
+    {
+        [DllImport("xcompress32.dll", CallingConvention = CallingConvention.StdCall)]
+        public static extern int LZXDecompress(byte[] src, int src_len, byte[] dst, ref int dst_len);
     }
 }

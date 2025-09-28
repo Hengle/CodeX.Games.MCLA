@@ -349,10 +349,9 @@ namespace CodeX.Games.MCLA.RSC5
 
             CreateMesh();
 
-
-            PartSize = (BoxMax.XYZ() - BoxMin.XYZ());// * 0.5f;
-            ComputeMass(ColliderType.Box, PartSize, 1.0f);//just an approximation to work with
-            ComputeBasicBodyInertia(ColliderType.Box, PartSize);//just an approximation to work with
+            PartSize = BoxMax.XYZ() - BoxMin.XYZ();
+            ComputeMass(ColliderType.Box, PartSize, 1.0f);
+            ComputeBasicBodyInertia(ColliderType.Box, PartSize);
         }
 
 
@@ -379,7 +378,7 @@ namespace CodeX.Games.MCLA.RSC5
                     Normal = norm,
                     Colour = (usevertexcolours && (VertexColours != null)) ? VertexColours[index] : matcol,
                     Texcoord = Vector2.Zero,
-                    Tangent = Vector3.Zero
+                    Tangent = Vector4.Zero
                 });
                 return c;
             }
