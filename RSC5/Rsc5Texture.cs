@@ -8,6 +8,7 @@ namespace CodeX.Games.MCLA.RSC5
     public class Rsc5TextureDictionary : Rsc5FileBase
     {
         public override ulong BlockLength => 32;
+        public override uint VFT { get; set; } = 0;
         public Rsc5Ptr<Rsc5BlockMap> BlockMapPointer { get; set; }
         public uint ParentDictionary { get; set; } //Always 0 in file
         public uint UsageCount { get; set; } //Always 1 in file
@@ -51,6 +52,7 @@ namespace CodeX.Games.MCLA.RSC5
     public class Rsc5Bitmap : Rsc5FileBase
     {
         public override ulong BlockLength => 16;
+        public override uint VFT { get; set; } = 0;
         public Rsc5Ptr<Rsc5BlockMap> BlockMapPointer { get; set; }
         public Rsc5Ptr<Rsc5Texture> Texture1 { get; set; }
         public Rsc5Ptr<Rsc5Texture> Texture2 { get; set; }
@@ -170,7 +172,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    public class Rsc5TextureBase : Texture, Rsc5Block
+    public class Rsc5TextureBase : Texture, IRsc5Block
     {
         public virtual ulong BlockLength => 80;
         public ulong FilePosition { get; set; }
@@ -216,7 +218,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    public class Rsc5TextureData : Rsc5Block
+    public class Rsc5TextureData : IRsc5Block
     {
         public ulong BlockLength { get; set; }
         public ulong FilePosition { get; set; }

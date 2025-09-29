@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using ICSharpCode.SharpZipLib.Zip.Compression;
 using MI = System.Runtime.CompilerServices.MethodImplAttribute;
 using MO = System.Runtime.CompilerServices.MethodImplOptions;
+using System.Reflection;
 
 namespace CodeX.Games.MCLA.RPF3
 {
@@ -270,7 +271,21 @@ namespace CodeX.Games.MCLA.RPF3
 
         public static Matrix3x4 Swap(Matrix3x4 m)
         {
-            return new Matrix3x4(Swap(m.Row1), Swap(m.Row2), Swap(m.Row3));
+            return new Matrix3x4(
+                Swap(m.Row1),
+                Swap(m.Row2),
+                Swap(m.Row3)
+            );
+        }
+
+        public static Matrix4x4 Swap(Matrix4x4 m)
+        {
+            return new Matrix4x4(
+                Swap(m.M11), Swap(m.M12), Swap(m.M13), Swap(m.M14),
+                Swap(m.M21), Swap(m.M22), Swap(m.M23), Swap(m.M24),
+                Swap(m.M31), Swap(m.M32), Swap(m.M33), Swap(m.M34),
+                Swap(m.M41), Swap(m.M42), Swap(m.M43), Swap(m.M44)
+            );
         }
 
         public static uint[] Swap(uint[] values)
@@ -533,6 +548,81 @@ namespace CodeX.Games.MCLA.RPF3
                 Buffer.BlockCopy(y, 0, buffer, offset, sizeof(float));
                 Buffer.BlockCopy(z, 0, buffer, offset + 4, sizeof(float));
                 Buffer.BlockCopy(x, 0, buffer, offset + 8, sizeof(float));
+            }
+        }
+
+        /// <summary>
+        /// Swaps the endianness of each element in the array
+        /// </summary>
+        /// <param name="items">The array of items whose endianness will be swapped in place</param>
+        public static void SwapEndianness<T>(T[] items) where T : unmanaged
+        {
+            if (items == null || items.Length == 0) return;
+
+            var method = typeof(Rpf3Crypto).GetMethods(BindingFlags.Public | BindingFlags.Static).FirstOrDefault(m =>
+            {
+                if (m.Name != nameof(Swap)) return false;
+                var p = m.GetParameters();
+                return p.Length == 1 && p[0].ParameterType == typeof(T);
+            });
+            if (method == null) return;
+
+            var swapper = (Func<T, T>)Delegate.CreateDelegate(typeof(Func<T, T>), method);
+            for (int i = 0; i < items.Length; i++)
+            {
+                items[i] = swapper(items[i]);
+            }
+        }
+
+        /// <summary>
+        /// Transforms an array of items of type T from XYZ coordinate space to ZXY. This method should be used for unmanaged types only.
+        /// </summary>
+        /// <typeparam name="T">The type of items in the array. Must be an unmanaged type.</typeparam>
+        /// <param name="items">The array of items to transform.</param>
+        public static void TransformToZXY<T>(T[] items) where T : unmanaged
+        {
+            if (items == null || items.Length == 0) return;
+            var delegates = new Dictionary<Type, Delegate>()
+            {
+                { typeof(Vector3),  new Func<Vector3, Vector3>(ToZXY) },
+                { typeof(Vector4),  new Func<Vector4, Vector4>(ToZXY) },
+                { typeof(BoundingBox4), new Func<BoundingBox4, BoundingBox4>(ToZXY) },
+                { typeof(Matrix3x4), new Func<Matrix3x4, Matrix3x4>(ToZXY) },
+                { typeof(Matrix4x4), new Func<Matrix4x4, Matrix4x4>(m => ToZXY(m)) }
+            };
+
+            if (!delegates.TryGetValue(typeof(T), out var del)) return;
+            var func = (Func<T, T>)del;
+
+            for (int i = 0; i < items.Length; i++)
+            {
+                items[i] = func(items[i]);
+            }
+        }
+
+        /// <summary>
+        /// Transforms an array of items of type T from ZXY coordinate space back to standard XYZ space. This method should be used for unmanaged types only.
+        /// </summary>
+        /// <typeparam name="T">The type of items in the array. Must be an unmanaged type.</typeparam>
+        /// <param name="items">The array of items to transform.</param>
+        public static void TransformFromZXY<T>(T[] items) where T : unmanaged
+        {
+            if (items == null || items.Length == 0) return;
+            var delegates = new Dictionary<Type, Delegate>()
+            {
+                { typeof(Vector3),  new Func<Vector3, Vector3>(ToXYZ) },
+                { typeof(Vector4),  new Func<Vector4, Vector4>(ToXYZ) },
+                { typeof(BoundingBox4), new Func<BoundingBox4, BoundingBox4>(ToXYZ) },
+                { typeof(Matrix3x4), new Func<Matrix3x4, Matrix3x4>(m => ToXYZ(m)) },
+                { typeof(Matrix4x4), new Func<Matrix4x4, Matrix4x4>(m => ToXYZ(m)) }
+            };
+
+            if (!delegates.TryGetValue(typeof(T), out var del)) return;
+            var func = (Func<T, T>)del;
+
+            for (int i = 0; i < items.Length; i++)
+            {
+                items[i] = func(items[i]);
             }
         }
 

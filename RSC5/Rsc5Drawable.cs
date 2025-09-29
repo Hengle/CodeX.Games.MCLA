@@ -1,10 +1,10 @@
-﻿using System.Numerics;
-using CodeX.Core.Engine;
-using CodeX.Core.Shaders;
+﻿using CodeX.Core.Engine;
 using CodeX.Core.Numerics;
+using CodeX.Core.Shaders;
 using CodeX.Core.Utilities;
-using CodeX.Games.MCLA.RPF3;
 using CodeX.Games.MCLA.Files;
+using CodeX.Games.MCLA.RPF3;
+using System.Numerics;
 using EXP = System.ComponentModel.ExpandableObjectConverter;
 using TC = System.ComponentModel.TypeConverterAttribute;
 
@@ -13,6 +13,7 @@ namespace CodeX.Games.MCLA.RSC5
     [TC(typeof(EXP))] public class Rsc5AmbientDrawablePed : Rsc5FileBase //.xapb
     {
         public override ulong BlockLength => 64;
+        public override uint VFT { get; set; } = 0;
         public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
         public Rsc5Ptr<Rsc5DrawableBase> Drawable { get; set; }
 
@@ -32,6 +33,7 @@ namespace CodeX.Games.MCLA.RSC5
     [TC(typeof(EXP))] public class Rsc5City : Rsc5FileBase //.xshp located in resources/city
     { 
         public override ulong BlockLength => 40;
+        public override uint VFT { get; set; } = 0;
         public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
         public Rsc5Ptr<Rsc5TextureDictionary> Dictionary { get; set; }
         public uint Unknown_Ch { get; set; }
@@ -53,28 +55,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5Drawable : Rsc5LodBase
-    {
-        public Rsc5Str NameRef { get; set; }
-
-        public override void Read(Rsc5DataReader reader)
-        {
-            base.Read(reader);
-        }
-
-        public override void Write(Rsc5DataWriter writer)
-        {
-            base.Write(writer);
-            throw new NotImplementedException();
-        }
-
-        public override string ToString()
-        {
-            return NameRef.Value;
-        }
-    }
-
-    [TC(typeof(EXP))] public class Rsc5DrawableBase : Piece, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5DrawableBase : Piece, IRsc5Block
     {
         public virtual ulong BlockLength => 116;
         public ulong FilePosition { get; set; }
@@ -83,7 +64,7 @@ namespace CodeX.Games.MCLA.RSC5
         public uint VFT { get; set; } = 0x00516D84;
         public Rsc5Ptr<Rsc5BlockMap> BlockMap { get; set; }
         public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroup { get; set; }
-        public Rsc5Ptr<Rsc5Skeleton> SkeletonRef { get; set; }
+        public Rsc5Ptr<Rsc5SkeletonData> SkeletonRef { get; set; }
         public Vector4 BoundingCenter { get; set; }
         public Vector4 BoundingBoxMin { get; set; }
         public Vector4 BoundingBoxMax { get; set; }
@@ -106,7 +87,7 @@ namespace CodeX.Games.MCLA.RSC5
             VFT = reader.ReadUInt32();
             BlockMap = reader.ReadPtr<Rsc5BlockMap>();
             ShaderGroup = reader.ReadPtr<Rsc5ShaderGroup>();
-            SkeletonRef = reader.ReadPtr<Rsc5Skeleton>();
+            SkeletonRef = reader.ReadPtr<Rsc5SkeletonData>();
             BoundingCenter = reader.ReadVector4();
             BoundingBoxMin = reader.ReadVector4();
             BoundingBoxMax = reader.ReadVector4();
@@ -194,24 +175,71 @@ namespace CodeX.Games.MCLA.RSC5
             }
         }
 
-        public void SetSkeleton(Rsc5Skeleton skel)
+        public void SetSkeleton(Rsc5SkeletonData skel)
         {
             Skeleton = skel;
-            if (AllModels != null)
+            if (AllModels == null) return;
+
+            var bones = skel?.Bones;
+            if (bones == null) return;
+
+            var origbones = (skel != SkeletonRef.Item) ? SkeletonRef.Item.BoneData.Items : null;
+            foreach (var model in AllModels.Cast<Rsc5DrawableModel>())
             {
-                var bones = skel?.Bones;
-                foreach (var model in AllModels.Cast<Rsc5DrawableModel>())
+                if (model == null) continue;
+                if (model.Meshes == null) continue;
+
+                var boneidx = model.MatrixIndex;
+                if ((model.SkinFlag == 0) && (boneidx < bones.Length))
                 {
-                    var boneidx = model.BoneIndex;
-                    if ((model.HasSkin == 0) && (bones != null) && (boneidx < bones.Length))
+                    if (model.Meshes != null)
                     {
-                        if (model.Meshes != null)
+                        foreach (var mesh in model.Meshes)
                         {
-                            foreach (var mesh in model.Meshes)
+                            mesh.BoneIndex = boneidx;
+                            if ((boneidx < 0) && (bones.Length > 1))
                             {
-                                mesh.BoneIndex = boneidx;
+                                mesh.Enabled = false;
                             }
                         }
+                    }
+                }
+                else if (model.SkinFlag == 1)
+                {
+                    foreach (var mesh in model.Meshes)
+                    {
+                        if (mesh is not Rsc5DrawableGeometry geom) continue;
+                        var boneids = geom.BoneIds.Items;
+                        if (boneids != null)
+                        {
+                            var boneinds = new int[boneids.Length];
+                            for (int i = 0; i < boneinds.Length; i++)
+                            {
+                                if (origbones != null) //Make sure to preseve original bone ordering!
+                                {
+                                    var origbone = origbones[boneids[i]];
+                                    if ((origbone != null) && skel.BonesMap.TryGetValue(origbone.ID, out var newbone))
+                                    {
+                                        boneinds[i] = newbone.Index;
+                                    }
+                                    else
+                                    {
+                                        boneinds[i] = boneids[i];
+                                    }
+                                }
+                                else
+                                {
+                                    boneinds[i] = boneids[i];
+                                }
+                            }
+                            geom.Rig = new SkeletonRig(skel, true, boneinds);
+                        }
+                        else
+                        {
+                            geom.Rig = new SkeletonRig(skel, true);
+                        }
+                        geom.RigMode = MeshRigMode.MeshRig;
+                        geom.IsSkin = true;
                     }
                 }
             }
@@ -238,30 +266,28 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5LodBase : Piece, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5Drawable : Piece, IRsc5Block
     {
-        public virtual ulong BlockLength => 160;
+        public ulong BlockLength => 160;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
-
-        public Rsc5Ptr<Rsc5ShaderGroup> ShaderGroup { get; set; }
         public Rsc5DrawableLod Lod { get; set; }
 
-        public virtual void Read(Rsc5DataReader reader)
+        public void Read(Rsc5DataReader reader)
         {
             Lod = reader.ReadBlock<Rsc5DrawableLod>();
-            Lods = [Lod];
-
             if (Lod != null)
             {
                 Lod.LodDist = 9999f;
             }
 
+            Lods = [Lod];
+
             UpdateAllModels();
             AssignGeometryShaders();
         }
 
-        public virtual void Write(Rsc5DataWriter writer)
+        public void Write(Rsc5DataWriter writer)
         {
             throw new NotImplementedException();
         }
@@ -285,7 +311,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5SimpleDrawableBase : Piece, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5SimpleDrawableBase : Piece, IRsc5Block
     {
         public virtual ulong BlockLength => 160;
         public ulong FilePosition { get; set; }
@@ -380,7 +406,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5DrawableLodMap : Rsc5DrawableLod, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5DrawableLodMap : Rsc5DrawableLod, IRsc5Block
     {
         public new ulong BlockLength => 32;
         public new ulong FilePosition { get; set; }
@@ -408,7 +434,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5DrawableLod : PieceLod, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5DrawableLod : PieceLod, IRsc5Block
     {
         public ulong BlockLength => 16;
         public ulong FilePosition { get; set; }
@@ -427,49 +453,25 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5DrawableModel : Model, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5DrawableModel : Model, IRsc5Block //rage::grmModel
     {
         public ulong BlockLength => 28;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
+
         public ulong VFT { get; set; }
         public Rsc5PtrArr<Rsc5DrawableGeometry> Geometries { get; set; } //m_Geometries
         public Rsc5RawArr<Vector4> BoundsData { get; set; } //m_AABBs, one for each geometry + one for the whole model (unless there's only one model)
         public Rsc5RawArr<ushort> ShaderMapping { get; set; } //m_ShaderIndex
-        public uint SkeletonBinding { get; set; } //4th byte is bone index, 2nd byte for skin meshes
-        public ushort RenderMaskFlags { get; set; } //m_SkinFlag, determine whether to render with the skinned draw path or not
-        public ushort GeometriesCount3 { get; set; } //m_Count
+        public byte MatrixCount { get; set; } //m_MatrixCount, bone count
+        public byte Flags { get; set; } //m_Flags
+        public byte Type { get; set; } = 0xCD; //m_Type, always 0xCD?
+        public byte MatrixIndex { get; set; } //m_MatrixIndex
+        public byte Stride { get; set; } //m_Stride, always 0?
+        public byte SkinFlag { get; set; } //m_SkinFlag, determine whether to render with the skinned draw path or not
+        public ushort GeometriesCount { get; set; } //m_Count
 
-        public byte BoneIndex
-        {
-            get { return (byte)((SkeletonBinding >> 24) & 0xFF); }
-            set { SkeletonBinding = (SkeletonBinding & 0x00FFFFFF) + ((value & 0xFFu) << 24); }
-        }
-        public byte SkeletonBindUnk2 //always 0
-        {
-            get { return (byte)((SkeletonBinding >> 16) & 0xFF); }
-            set { SkeletonBinding = (SkeletonBinding & 0xFF00FFFF) + ((value & 0xFFu) << 16); }
-        }
-        public byte HasSkin //only 0 or 1
-        {
-            get { return (byte)((SkeletonBinding >> 8) & 0xFF); }
-            set { SkeletonBinding = (SkeletonBinding & 0xFFFF00FF) + ((value & 0xFFu) << 8); }
-        }
-        public byte SkeletonBindUnk1 //only 0 or 43 (in rare cases, see below)
-        {
-            get { return (byte)((SkeletonBinding >> 0) & 0xFF); }
-            set { SkeletonBinding = (SkeletonBinding & 0xFFFFFF00) + ((value & 0xFFu) << 0); }
-        }
-        public byte RenderMask
-        {
-            get { return (byte)((RenderMaskFlags >> 0) & 0xFF); }
-            set { RenderMaskFlags = (ushort)((RenderMaskFlags & 0xFF00u) + ((value & 0xFFu) << 0)); }
-        }
-        public byte Flags
-        {
-            get { return (byte)((RenderMaskFlags >> 8) & 0xFF); }
-            set { RenderMaskFlags = (ushort)((RenderMaskFlags & 0xFFu) + ((value & 0xFFu) << 8)); }
-        }
+        public BoundingBox BoundingBox { get; set; } //Created from first GeometryBounds item
 
         public void Read(Rsc5DataReader reader)
         {
@@ -477,12 +479,16 @@ namespace CodeX.Games.MCLA.RSC5
             Geometries = reader.ReadPtrArr<Rsc5DrawableGeometry>();
             BoundsData = reader.ReadRawArrPtr<Vector4>();
             ShaderMapping = reader.ReadRawArrPtr<ushort>();
-            SkeletonBinding = reader.ReadUInt32();
-            RenderMaskFlags = reader.ReadUInt16();
-            GeometriesCount3 = reader.ReadUInt16();
+            MatrixCount = reader.ReadByte();
+            Flags = reader.ReadByte();
+            Type = reader.ReadByte();
+            MatrixIndex = reader.ReadByte();
+            Stride = reader.ReadByte();
+            SkinFlag = reader.ReadByte();
+            GeometriesCount = reader.ReadUInt16();
 
             var geocount = Geometries.Count;
-            ShaderMapping = reader.ReadRawArrItems(ShaderMapping, geocount, true);
+            ShaderMapping = reader.ReadRawArrItems(ShaderMapping, geocount);
             BoundsData = reader.ReadRawArrItems(BoundsData, geocount > 1 ? geocount + 1u : geocount);
 
             var geoms = Geometries.Items;
@@ -493,14 +499,14 @@ namespace CodeX.Games.MCLA.RSC5
 
                 if (BoundsData.Items != null && BoundsData.Items.Length > 0)
                 {
-                    var vecs = Rpf3Crypto.Swap(BoundsData.Items);
+                    var vecs = BoundsData.Items;
                     boundsData = new BoundingBox4[vecs.Length];
 
                     for (int i = 0; i < vecs.Length; i++)
                     {
                         var v = vecs[i];
-                        var vMin = new Vector3(v.Z - v.W, v.X - v.W, v.Y - v.W);
-                        var vMax = new Vector3(v.Z + v.W, v.X + v.W, v.Y + v.W);
+                        var vMin = new Vector3(v.X - v.W, v.Y - v.W, v.Z - v.W);
+                        var vMax = new Vector3(v.X + v.W, v.Y + v.W, v.Z + v.W);
                         boundsData[i] = new BoundingBox4(new Vector4(vMin, 0.0f), new Vector4(vMax, 0.0f));
                     }
                 }
@@ -522,6 +528,12 @@ namespace CodeX.Games.MCLA.RSC5
                         }
                     }
                 }
+
+                if ((boundsData != null) && (boundsData.Length > 0))
+                {
+                    ref var bb = ref boundsData[0];
+                    BoundingBox = new BoundingBox(bb.Min.XYZ(), bb.Max.XYZ());
+                }
             }
 
             Meshes = geoms;
@@ -532,7 +544,6 @@ namespace CodeX.Games.MCLA.RSC5
 
         public void Write(Rsc5DataWriter writer)
         {
-            GeometriesCount3 = Geometries.Count;
             throw new NotImplementedException();
         }
 
@@ -551,28 +562,15 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5DrawableGeometry : Mesh, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5DrawableGeometry : Mesh, IRsc5Block
     {
-        public ulong BlockLength
-        {
-            get
-            {
-                ulong l = 152;
-                var boneIds = BoneIds.Items;
-                if (boneIds != null)
-                {
-                    if (boneIds.Length > 4) l += 8;
-                    l += (uint)(boneIds.Length) * 2;
-                }
-                return l;
-            }
-        }
+        public ulong BlockLength => 80;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
 
-        public uint VFT { get; set; }
+        public uint VFT { get; set; } = 0x00557754;
+        public uint Unknown_4h { get; set; }
         public uint Unknown_8h { get; set; }
-        public uint Unknown_10h { get; set; }
         public Rsc5Ptr<Rsc5VertexBuffer> VertexBuffer { get; set; } //m_VB[4] - rage::grcVertexBuffer
         public Rsc5Ptr<Rsc5VertexBuffer> VertexBuffer2 { get; set; }
         public Rsc5Ptr<Rsc5VertexBuffer> VertexBuffer3 { get; set; }
@@ -583,15 +581,13 @@ namespace CodeX.Games.MCLA.RSC5
         public Rsc5Ptr<Rsc5IndexBuffer> IndexBuffer4 { get; set; }
         public uint IndicesCount { get; set; } //m_IndexCount
         public uint TrianglesCount { get; set; } //m_PrimCount
-        public ushort Unknown_62h { get; set; } = 3; //m_PrimType, rendering primitive type
-        public uint Unknown_64h { get; set; }
+        public ushort PrimitiveType { get; set; } = 3; //m_PrimType, rendering primitive type
         public Rsc5RawArr<ushort> BoneIds { get; set; } //m_MtxPalette, matrix palette for this geometry
         public ushort BoneIdsCount { get; set; } //m_MtxCount, the number of matrices in the matrix paletter
-        public uint Unknown_74h { get; set; }
         public Rsc5RawArr<byte> VertexDataRef { get; set; }
-        public uint Unknown_80h { get; set; } //m_OffsetBuffer, PS3 only I think
-        public uint Unknown_88h { get; set; } //m_IndexOffset, PS3 only I think
-        public uint Unknown_90h { get; set; }
+        public uint OffsetBuffer { get; set; } //m_OffsetBuffer, PS3 only I think
+        public uint IndexOffset { get; set; } //m_IndexOffset, PS3 only I think
+        public uint Unknown_3Ch { get; set; }
 
         public Rsc5Shader ShaderRef { get; set; }
         public ushort ShaderID { get; set; } //Read-written by parent model
@@ -600,8 +596,8 @@ namespace CodeX.Games.MCLA.RSC5
         public void Read(Rsc5DataReader reader)
         {
             VFT = reader.ReadUInt32();
+            Unknown_4h = reader.ReadUInt32();
             Unknown_8h = reader.ReadUInt32();
-            Unknown_10h = reader.ReadUInt32();
             VertexBuffer = reader.ReadPtr<Rsc5VertexBuffer>();
             VertexBuffer2 = reader.ReadPtr<Rsc5VertexBuffer>();
             VertexBuffer3 = reader.ReadPtr<Rsc5VertexBuffer>();
@@ -613,16 +609,20 @@ namespace CodeX.Games.MCLA.RSC5
             IndicesCount = reader.ReadUInt32();
             TrianglesCount = reader.ReadUInt32();
             VertexCount = reader.ReadUInt16();
-            Unknown_62h = reader.ReadUInt16();
+            PrimitiveType = reader.ReadUInt16();
             BoneIds = reader.ReadRawArrPtr<ushort>();
             VertexStride = reader.ReadUInt16();
             BoneIdsCount = reader.ReadUInt16();
-            BoneIds = reader.ReadRawArrItems(BoneIds, BoneIdsCount, true);
+            VertexDataRef = reader.ReadRawArrPtr<byte>();
+            OffsetBuffer = reader.ReadUInt32();
+            IndexOffset = reader.ReadUInt32();
+            Unknown_3Ch = reader.ReadUInt32();
+            BoneIds = reader.ReadRawArrItems(BoneIds, BoneIdsCount);
 
             if (VertexBuffer.Item != null) //Hack to fix stupid "locked" things
             {
                 VertexLayout = VertexBuffer.Item?.Layout.Item?.VertexLayout;
-                VertexData = Rpf3Crypto.Swap(VertexBuffer.Item.Data1.Items ?? VertexBuffer.Item.Data2.Items);
+                VertexData = Rpf3Crypto.Swap(VertexBuffer.Item.LockedData.Items ?? VertexBuffer.Item.VertexData.Items);
 
                 if (VertexCount == 0)
                 {
@@ -640,7 +640,7 @@ namespace CodeX.Games.MCLA.RSC5
                 for (int i = 0; i < elemcount; i++)
                 {
                     var elem = elems[i];
-                    int elemoffset = elem.Offset;
+                    var elemoffset = elem.Offset;
 
                     switch (elem.Format)
                     {
@@ -680,11 +680,28 @@ namespace CodeX.Games.MCLA.RSC5
 
         public void Write(Rsc5DataWriter writer)
         {
-            VertexCount = VertexBuffer.Item != null ? VertexBuffer.Item.VertexCount : 0;
-            VertexStride = (int)(VertexBuffer.Item != null ? VertexBuffer.Item.VertexStride : 0);
-            IndicesCount = IndexBuffer.Item != null ? IndexBuffer.Item.IndicesCount : 0;
-            TrianglesCount = IndicesCount / 3;
-            throw new NotImplementedException();
+            writer.WriteUInt32(VFT);
+            writer.WriteUInt32(Unknown_4h);
+            writer.WriteUInt32(Unknown_8h);
+            writer.WritePtr(VertexBuffer);
+            writer.WritePtr(VertexBuffer2);
+            writer.WritePtr(VertexBuffer3);
+            writer.WritePtr(VertexBuffer4);
+            writer.WritePtr(IndexBuffer);
+            writer.WritePtr(IndexBuffer2);
+            writer.WritePtr(IndexBuffer3);
+            writer.WritePtr(IndexBuffer4);
+            writer.WriteUInt32(IndicesCount);
+            writer.WriteUInt32(TrianglesCount);
+            writer.WriteUInt16((ushort)VertexCount);
+            writer.WriteUInt16(PrimitiveType);
+            writer.WriteRawArr(BoneIds);
+            writer.WriteUInt16((ushort)VertexStride);
+            writer.WriteUInt16(BoneIdsCount);
+            writer.WriteUInt32(0xCDCDCDCD); //VertexDataRef
+            writer.WriteUInt32(OffsetBuffer);
+            writer.WriteUInt32(IndexOffset);
+            writer.WriteUInt32(Unknown_3Ch);
         }
 
         public void SetShaderRef(Rsc5Shader shader)
@@ -890,116 +907,105 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5IndexBuffer : Rsc5BlockBase
+    [TC(typeof(EXP))] public class Rsc5XenonD3DResource : Rsc5BlockBase //rage::grcXenonD3DResource (XeDK headers)
     {
-        public override ulong BlockLength => 96;
-        public ulong VFT { get; set; } = 0x14061D158;
-        public Rsc5RawArr<ushort> Indices { get; set; }
-        public uint IndicesCount { get; set; }
-        public uint Unknown_Ch; // 0x00000000
-        public ulong Unknown_18h; // 0x0000000000000000
-        public ulong Unknown_20h; // 0x0000000000000000
-        public ulong Unknown_28h; // 0x0000000000000000
-        public ulong Unknown_30h; // 0x0000000000000000
-        public ulong Unknown_38h; // 0x0000000000000000
-        public ulong Unknown_40h; // 0x0000000000000000
-        public ulong Unknown_48h; // 0x0000000000000000
-        public ulong Unknown_50h; // 0x0000000000000000
-        public ulong Unknown_58h; // 0x0000000000000000
+        public override ulong BlockLength => 32;
+        public Rsc5IndexBufferD3DFlags Common { get; set; } //Flags common to all resources
+        public uint ReferenceCount { get; set; } = 1; //External reference count
+        public uint Fence { get; set; } //This is the fence number of the last ring buffer reference to this resource
+        public uint ReadFence { get; set; } //This is used to determine when it's safe for the CPU to read a resource that was written to by the GPU
+        public uint Identifier { get; set; } //Game-supplied data that identifies the resource
+        public uint BaseFlush { get; set; } = 0xFFFF0000; //Encodes the memory range to be flushed by D3D via 'dcbf' at 'Unlock' time
+        public uint DWORD0 { get; set; } //GPU Address for index buffers - vertex buffers are GPU constant type: [0..1] and BaseAddress: [2..31]
+        public uint DWORD1 { get; set; } //Buffer size for index buffers - vertex buffers are Endian: [0..1], Size: (in DWORDS) [2..25], AddressClamp: [26], RequestSize: [28..29] and ClampDisable: [30..31]
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            Common = (Rsc5IndexBufferD3DFlags)reader.ReadUInt32();
+            ReferenceCount = reader.ReadUInt32();
+            Fence = reader.ReadUInt32();
+            ReadFence = reader.ReadUInt32();
+            Identifier = reader.ReadUInt32();
+            BaseFlush = reader.ReadUInt32();
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+            writer.WriteUInt32((uint)Common);
+            writer.WriteUInt32(ReferenceCount);
+            writer.WriteUInt32(Fence);
+            writer.WriteUInt32(ReadFence);
+            writer.WriteUInt32(Identifier);
+            writer.WriteUInt32(BaseFlush);
+        }
+    }
+
+    [TC(typeof(EXP))] public class Rsc5IndexBuffer : Rsc5BlockBase //grcIndexBufferD3D
+    {
+        public override ulong BlockLength => 32;
+        public ulong VFT { get; set; } = 0x00566198;
+        public uint IndicesCount { get; set; }  //m_IndexCount
+        public Rsc5RawArr<ushort> Indices { get; set; } //m_IndexData
+        public Rsc5Ptr<Rsc5XenonD3DResource> D3DIndexBuffer { get; set; } //m_D3DBuffer
 
         public override void Read(Rsc5DataReader reader)
         {
             VFT = reader.ReadUInt32();
             IndicesCount = reader.ReadUInt32();
             Indices = reader.ReadRawArrPtr<ushort>();
-            Unknown_18h = reader.ReadUInt32();
-            Unknown_20h = reader.ReadUInt32();
-            Unknown_28h = reader.ReadUInt32();
-            Unknown_30h = reader.ReadUInt32();
-            Unknown_38h = reader.ReadUInt32();
-            Unknown_40h = reader.ReadUInt32();
-            Unknown_48h = reader.ReadUInt32();
-            Unknown_50h = reader.ReadUInt32();
-            Unknown_58h = reader.ReadUInt32();
-            Indices = reader.ReadRawArrItems(Indices, IndicesCount, true);
+            D3DIndexBuffer = reader.ReadPtr<Rsc5XenonD3DResource>();
+            Indices = reader.ReadRawArrItems(Indices, IndicesCount);
         }
 
         public override void Write(Rsc5DataWriter writer)
         {
             IndicesCount = (uint)(Indices.Items != null ? Indices.Items.Length : 0);
             throw new NotImplementedException();
-
-            //writer.Write(VFT);
-            //writer.Write(IndicesCount);
-            //writer.Write(Unknown_Ch);
-            //writer.Write(Indices);
-            //writer.Write(Unknown_18h);
-            //writer.Write(Unknown_20h);
-            //writer.Write(Unknown_28h);
-            //writer.Write(Unknown_30h);
-            //writer.Write(Unknown_38h);
-            //writer.Write(Unknown_40h);
-            //writer.Write(Unknown_48h);
-            //writer.Write(Unknown_50h);
-            //writer.Write(Unknown_58h);
         }
-
     }
 
-    [TC(typeof(EXP))] public class Rsc5VertexBuffer : Rsc5BlockBase
+    [TC(typeof(EXP))] public class Rsc5VertexBuffer : Rsc5BlockBase //grcVertexBufferD3D
     {
-        public override ulong BlockLength => 128;
-        public ulong VFT { get; set; } = 0x14061D3F8;
-        public Rsc5RawArr<byte> Data1 { get; set; }
-        public ushort Flags { get; set; } //only 0 or 1024
-        public Rsc5RawArr<byte> Data2 { get; set; }
-        public ushort VertexCount { get; set; }
-        public Rsc5Ptr<Rsc5VertexDeclaration> Layout { get; set; }
-        public uint VertexStride { get; set; }
-        public uint Unknown1 { get; set; }
-        public uint Unknown2 { get; set; }
+        public override ulong BlockLength => 32;
+        public uint VFT { get; set; } = 0x005665A0;
+        public ushort VertexCount { get; set; } //m_VertCount
+        public byte Locked { get; set; } //m_Locked
+        public byte Flags { get; set; } //m_Flags
+        public Rsc5RawArr<byte> LockedData { get; set; } //m_pLockedData, same as m_pVertexData
+        public uint VertexStride { get; set; } //m_Stride
+        public Rsc5Ptr<Rsc5VertexDeclaration> Layout { get; set; } //m_Fvf
+        public uint LockThreadID { get; set; } //m_dwLockThreadId
+        public Rsc5RawArr<byte> VertexData { get; set; } //m_pVertexData
+        public Rsc5Ptr<Rsc5XenonD3DResource> D3DVertexBuffer { get; set; } //m_D3DBuffer
 
         public override void Read(Rsc5DataReader reader)
         {
             VFT = reader.ReadUInt32();
             VertexCount = reader.ReadUInt16();
-            Flags = reader.ReadUInt16();
-            Data1 = reader.ReadRawArrPtr<byte>();
+            Locked = reader.ReadByte();
+            Flags = reader.ReadByte();
+            LockedData = reader.ReadRawArrPtr<byte>();
             VertexStride = reader.ReadUInt32();
             Layout = reader.ReadPtr<Rsc5VertexDeclaration>();
-            Unknown1 = reader.ReadUInt32();
-            Data2 = reader.ReadRawArrPtr<byte>();
-            Unknown2 = reader.ReadUInt32();
+            LockThreadID = reader.ReadUInt32();
+            VertexData = reader.ReadRawArrPtr<byte>();
+            D3DVertexBuffer = reader.ReadPtr<Rsc5XenonD3DResource>();
 
-            var datalen = VertexCount * VertexStride;
-            Data1 = reader.ReadRawArrItems(Data1, datalen);
-            Data2 = reader.ReadRawArrItems(Data2, datalen);
+            LockedData = reader.ReadRawArrItems(LockedData, (uint)(VertexCount * Layout.Item.FVFSize));
+            VertexData = reader.ReadRawArrItems(VertexData, (uint)(VertexCount * Layout.Item.FVFSize));
         }
 
         public override void Write(Rsc5DataWriter writer)
         {
-            VertexCount = (ushort)(Data1.Items != null ? Data1.Items.Length : Data2.Items != null ? Data2.Items.Length : 0);
-            throw new NotImplementedException();
-
-            //writer.Write(VFT);
-            //writer.Write(VertexStride);
-            //writer.Write(Flags);
-            //writer.Write(Unknown_Ch);
-            //writer.Write(Data1);
-            //writer.Write(VertexCount);
-            //writer.Write(Unknown_1Ch);
-            //writer.Write(Data2);
-            //writer.Write(Unknown_28h);
-            //writer.Write(Layout);
-            //writer.Write(Unknown_38h);
-            //writer.Write(Unknown_40h);
-            //writer.Write(Unknown_48h);
-            //writer.Write(Unknown_50h);
-            //writer.Write(Unknown_58h);
-            //writer.Write(Unknown_60h);
-            //writer.Write(Unknown_68h);
-            //writer.Write(Unknown_70h);
-            //writer.Write(Unknown_78h);
+            writer.WriteUInt32(VFT);
+            writer.WriteUInt16(VertexCount);
+            writer.WriteByte(Locked);
+            writer.WriteByte(Flags);
+            writer.WriteRawArr(LockedData); //Should be NULL
+            writer.WriteUInt32(VertexStride);
+            writer.WritePtr(Layout);
+            writer.WriteUInt32(LockThreadID);
+            writer.WriteRawArr(VertexData);
         }
 
         public override string ToString()
@@ -1233,86 +1239,228 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5Skeleton : Skeleton, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5SkeletonData : Skeleton, IRsc5Block //rage::crSkeletonData
     {
-        public ulong BlockLength => 4;
+        public ulong BlockLength => 64;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
-        public Rsc5Ptr<Rsc5Bone> Bone { get; set; }
+
+        public Rsc5RawLst<Rsc5BoneData> BoneData { get; set; }
+        public Rsc5RawArr<int> ParentIndices { get; set; } //m_ParentIndices, pointer to parent indices table, NULL if none calculated
+        public Rsc5RawArr<Matrix4x4> JointScaleOrients { get; set; } //m_CumulativeJointScaleOrients, mostly NULL
+        public Rsc5RawArr<Matrix4x4> InverseJointScaleOrients { get; set; } //m_CumulativeInverseJointScaleOrients, inverse cumulative joint scale orient matrices
+        public Rsc5RawArr<Matrix4x4> DefaultTransforms { get; set; } //m_DefaultTransforms, default bone transform
+        public ushort BoneCount { get; set; } // m_NumBones, number of bones in skeleton
+        public ushort NumTranslationDofs { get; set; } //m_NumTranslationDofs
+        public ushort NumRotationDofs { get; set; } //m_NumRotationDofs
+        public ushort NumScaleDofs { get; set; } //m_NumScaleDofs
+        public uint Flags { get; set; } //m_Flags
+        public Rsc5ManagedArr<Rsc5SkeletonBoneTag> BoneIDs { get; set; } //m_BoneIdTable, rage::crSkeletonData
+        public uint RefCount { get; set; } = 1; //m_RefCount
+        public uint Signature { get; set; } //m_Signature, skeleton signature (a hash value that identifies the skeleton's structure, the order of the branches of child bones matter)
+        public Rsc5Str JointDataFileName { get; set; } //m_JointDataFileName, always NULL?
+        public uint JointData { get; set; } //m_JointData
+        public uint Unknown6 { get; set; } //Padding
+        public uint Unknown7 { get; set; } //Padding
+
+        public Dictionary<Rsc5BoneIdEnum, Rsc5BoneData> BonesMap { get; set; } //For convienience finding bones by tag
 
         public void Read(Rsc5DataReader reader)
         {
-            Bone = reader.ReadPtr<Rsc5Bone>();
+            BoneData = reader.ReadRawLstPtr<Rsc5BoneData>();
+            ParentIndices = reader.ReadRawArrPtr<int>();
+            JointScaleOrients = reader.ReadRawArrPtr<Matrix4x4>();
+            InverseJointScaleOrients = reader.ReadRawArrPtr<Matrix4x4>();
+            DefaultTransforms = reader.ReadRawArrPtr<Matrix4x4>();
+            BoneCount = reader.ReadUInt16();
+            NumTranslationDofs = reader.ReadUInt16();
+            NumRotationDofs = reader.ReadUInt16();
+            NumScaleDofs = reader.ReadUInt16();
+            Flags = reader.ReadUInt32();
+            BoneIDs = reader.ReadArr<Rsc5SkeletonBoneTag>();
+            RefCount = reader.ReadUInt32();
+            Signature = reader.ReadUInt32();
+            JointDataFileName = reader.ReadStr();
+            JointData = reader.ReadUInt32();
+            Unknown6 = reader.ReadUInt32();
+            Unknown7 = reader.ReadUInt32();
+
+            BoneData = reader.ReadRawLstItems(BoneData, BoneCount);
+            ParentIndices = reader.ReadRawArrItems(ParentIndices, BoneCount);
+            JointScaleOrients = reader.ReadRawArrItems(JointScaleOrients, BoneCount);
+            InverseJointScaleOrients = reader.ReadRawArrItems(InverseJointScaleOrients, BoneCount);
+            DefaultTransforms = reader.ReadRawArrItems(DefaultTransforms, BoneCount);
+            Bones = BoneData.Items;
+
+            for (uint i = 0; i < BoneCount; i++)
+            {
+                var b = (Rsc5BoneData)Bones[i];
+                b.ParentIndex = (ParentIndices.Items != null) ? ParentIndices.Items[i] : 0;
+                b.JointScaleOrients = (JointScaleOrients.Items != null) ? JointScaleOrients.Items[i] : Matrix4x4.Identity;
+                b.InverseJointScaleOrients = (InverseJointScaleOrients.Items != null) ? InverseJointScaleOrients.Items[i] : Matrix4x4.Identity;
+                b.DefaultTransforms = (DefaultTransforms.Items != null) ? DefaultTransforms.Items[i] : Matrix4x4.Identity;
+                Bones[i] = b;
+            }
+
+            for (int i = 0; i < Bones.Length; i++)
+            {
+                var bone = (Rsc5BoneData)Bones[i];
+                var ns = bone.NextSibling;
+                var fc = bone.FirstChild;
+                var pr = bone.ParentRef;
+
+                if (reader.BlockPool.TryGetValue(ns.Position, out var nsi)) ns.Item = nsi as Rsc5BoneData;
+                if (reader.BlockPool.TryGetValue(fc.Position, out var fci)) fc.Item = fci as Rsc5BoneData;
+                if (reader.BlockPool.TryGetValue(pr.Position, out var pri)) pr.Item = pri as Rsc5BoneData;
+
+                bone.NextSibling = ns;
+                bone.FirstChild = fc;
+                bone.ParentRef = pr;
+                bone.Parent = pr.Item;
+            }
+
+            var bonesSorted = Bones.ToList();
+            bonesSorted.Sort((a, b) => a.Index.CompareTo(b.Index));
+
+            for (int i = 0; i < bonesSorted.Count; i++)
+            {
+                var bone = bonesSorted[i];
+                bone.UpdateAnimTransform();
+                bone.AbsTransform = bone.AnimTransform;
+                bone.BindTransformInv = Matrix4x4Ext.Invert(bone.AnimTransform);
+                bone.BindTransformInv.M44 = 1.0f;
+                bone.UpdateSkinTransform();
+            }
+
+            BuildBoneTags(false);
+            UpdateBoneTransforms();
+            BuildBonesDictionary();
         }
 
         public void Write(Rsc5DataWriter writer)
         {
-            writer.WritePtr(Bone);
+            
+        }
+
+        public void BuildBoneTags(bool fromXml)
+        {
+            BonesMap = [];
+            var tags = new List<Rsc5SkeletonBoneTag>();
+            var bones = BoneData.Items;
+
+            if (bones != null)
+            {
+                for (int i = 0; i < bones.Length; i++)
+                {
+                    var bone = bones[i];
+                    var tag = new Rsc5SkeletonBoneTag
+                    {
+                        BoneTag = bone.ID,
+                        BoneIndex = (ushort)i
+                    };
+                    BonesMap[bone.ID] = bone;
+                    tags.Add(tag);
+                }
+            }
+
+            if (!fromXml) return;
+            var skip = tags.Count < 1;
+            if (tags.Count == 1)
+            {
+                var t0 = tags[0];
+                skip = t0.BoneTag == 0;
+            }
+
+            if (skip)
+            {
+                BoneIDs = new();
+                return;
+            }
+
+            if (BoneIDs.Items == null)
+            {
+                tags = tags.OrderBy(tag => tag.BoneIndex).ToList();
+                BoneIDs = new([.. tags]);
+            }
         }
     }
 
-    [TC(typeof(EXP))] public class Rsc5Bone : Bone, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5BoneData : Bone, IRsc5Block //rage::crBoneData
     {
         public ulong BlockLength => 224;
         public ulong FilePosition { get; set; }
         public bool IsPhysical => false;
-        public Rsc5Str NameStr { get; set; }
-        public ushort Unknown1 { get; set; }
-        public ushort Flags { get; set; }
-        public Rsc5Ptr<Rsc5Bone> NextSibling { get; set; }
-        public Rsc5Ptr<Rsc5Bone> FirstChild { get; set; }
-        public Rsc5Ptr<Rsc5Bone> ParentRef { get; set; }
-        public ushort ID { get; set; }
-        public ushort Mirror { get; set; }
-        public ushort Unknown3 { get; set; }
-        public uint Unknown4 { get; set; }
-        public Vector4 OrigPosition { get; set; }
-        public Vector4 OrigRotationEuler { get; set; }
-        public Vector4 OrigRotation { get; set; }
-        public Vector4 OrigScale { get; set; }
-        public Vector4 AbsolutePosition { get; set; }
-        public Vector4 AbsoluteRotationEuler { get; set; }
-        public Vector4 Sorient { get; set; }
-        public Vector4 TranslationMin { get; set; }
-        public Vector4 TranslationMax { get; set; }
-        public Vector4 RotationMin { get; set; }
-        public Vector4 RotationMax { get; set; }
-        public Vector4 Unknown5 { get; set; }
-        public uint UnknownInt { get; set; } //updated from Rsc5Skeleton
-        public Matrix4x4 Transform1 { get; set; } //updated from Rsc5Skeleton
-        public Matrix4x4 Transform2 { get; set; } //updated from Rsc5Skeleton
-        public Matrix4x4 Transform3 { get; set; } //updated from Rsc5Skeleton
+
+        public Rsc5Str NameStr { get; set; }  //m_Name, bone name
+        public uint Dofs { get; set; } //m_Dofs, bone data degree-of-freedom flags
+        public Rsc5Ptr<Rsc5BoneData> NextSibling { get; set; } //m_Next, pointer to the bone's next sibling, or NULL if no more siblings
+        public Rsc5Ptr<Rsc5BoneData> FirstChild { get; set; } //m_Child, pointer to the bone's first child, or NULL if no children
+        public Rsc5Ptr<Rsc5BoneData> ParentRef { get; set; } //m_Parent, pointer to the bone's parent, or NULL if no parent
+        public Rsc5BoneIdEnum ID { get; set; } //m_BoneId, the bone id of this bone (or if bone ids not used, returns the bone's index)
+        public ushort Mirror { get; set; } //m_MirrorIndex, index of the bone that is a mirror to this bone (used to mirror animations/frames)
+        public byte NumTransChannels { get; set; } //m_NumTransChannels, related to TranslationMin and TranslationMax
+        public byte NumRotChannels { get; set; } //m_NumRotChannels, related to RotationMin and RotationMax
+        public byte NumScaleChannels { get; set; } //m_NumScaleChannels, related to OrigScale
+        public ushort Unknown_1Dh { get; set; } //Pad
+        public byte Unknown_1Fh { get; set; } //Pad
+        public Vector4 OrigPosition { get; set; } //m_DefaultTranslation, default translation vector of bone, this is the offset between this bone and it's parent
+        public Vector4 OrigRotationEuler { get; set; } //m_DefaultRotation, default rotation on the bone
+        public Quaternion OrigRotation { get; set; } //m_DefaultRotationQuat, default rotation on the bone as a quaternion
+        public Vector4 OrigScale { get; set; } //m_DefaultScale, default scale vector (not properly implemented in RAGE)
+        public Vector4 AbsolutePosition { get; set; } //m_GlobalOffset, depending on Dofs, Parent->DefaultTranslation or DefaultTranslation transformed to the model space
+        public Vector4 AbsoluteRotationEuler { get; set; } //m_JointOrient
+        public Vector4 Sorient { get; set; } //m_ScaleOrient
+        public Vector4 TranslationMin { get; set; } //m_TransMin
+        public Vector4 TranslationMax { get; set; } //m_TransMax
+        public Vector4 RotationMin { get; set; } //m_RotMin
+        public Vector4 RotationMax { get; set; } //m_RotMax
+        public uint JointData { get; set; } //m_JointData, always 0
+        public JenkHash NameHash { get; set; } //m_NameHash, bone name hashed
+        public uint Unknown_D8h { get; set; } //Always 0
+        public uint Unknown_DCh { get; set; } //Always 0
+
+        public int SiblingIndex { get; set; }
+        public int ChildIndex { get; set; }
+        public int ParentIndex { get; set; }
+        public Matrix4x4 JointScaleOrients { get; set; }
+        public Matrix4x4 InverseJointScaleOrients { get; set; }
+        public Matrix4x4 DefaultTransforms { get; set; }
 
         public void Read(Rsc5DataReader reader)
         {
             NameStr = reader.ReadStr();
-            Unknown1 = reader.ReadUInt16();
-            Flags = reader.ReadUInt16();
-            NextSibling = new Rsc5Ptr<Rsc5Bone>() { Position = reader.ReadUInt32() }; //reader.ReadPtr<Rsc5Bone>(); //###need to avoid circular reads here!
-            FirstChild = new Rsc5Ptr<Rsc5Bone>() { Position = reader.ReadUInt32() }; //reader.ReadPtr<Rsc5Bone>();
-            ParentRef = new Rsc5Ptr<Rsc5Bone>() { Position = reader.ReadUInt32() }; //reader.ReadPtr<Rsc5Bone>();
+            Dofs = reader.ReadUInt32();
+            NextSibling = new Rsc5Ptr<Rsc5BoneData>() { Position = reader.ReadUInt32() };
+            FirstChild = new Rsc5Ptr<Rsc5BoneData>() { Position = reader.ReadUInt32() };
+            ParentRef = new Rsc5Ptr<Rsc5BoneData>() { Position = reader.ReadUInt32() };
             Index = reader.ReadUInt16();
-            ID = reader.ReadUInt16();
+            ID = (Rsc5BoneIdEnum)reader.ReadUInt16();
             Mirror = reader.ReadUInt16();
-            Unknown3 = reader.ReadUInt16();
-            Unknown4 = reader.ReadUInt32();
+            NumTransChannels = reader.ReadByte();
+            NumRotChannels = reader.ReadByte();
+            NumScaleChannels = reader.ReadByte();
+            Unknown_1Dh = reader.ReadUInt16();
+            Unknown_1Fh = reader.ReadByte();
             OrigPosition = reader.ReadVector4();
             OrigRotationEuler = reader.ReadVector4();
-            OrigRotation = reader.ReadVector4();
+            OrigRotation = reader.ReadVector4().ToQuaternion();
             OrigScale = reader.ReadVector4();
             AbsolutePosition = reader.ReadVector4();
             AbsoluteRotationEuler = reader.ReadVector4();
             Sorient = reader.ReadVector4();
             TranslationMin = reader.ReadVector4();
             TranslationMax = reader.ReadVector4();
-            RotationMin = reader.ReadVector4(); // Minimum euler rotation maybe?
-            RotationMax = reader.ReadVector4(); // Maximum euler rotation maybe?
-            Unknown5 = reader.ReadVector4();
+            RotationMin = reader.ReadVector4();
+            RotationMax = reader.ReadVector4();
+            JointData = reader.ReadUInt32();
+            NameHash = reader.ReadUInt32();
+            Unknown_D8h = reader.ReadUInt32();
+            Unknown_DCh = reader.ReadUInt32();
 
             Name = NameStr.Value;
             Position = OrigPosition.XYZ();
-            Rotation = OrigRotation.ToQuaternion();
-            Scale = Vector3.One; //OrigScale.XYZ();
+            Rotation = OrigRotation;
+            Scale = Vector3.One;
 
             AnimRotation = Rotation;
             AnimTranslation = Position;
@@ -1321,7 +1469,116 @@ namespace CodeX.Games.MCLA.RSC5
 
         public void Write(Rsc5DataWriter writer)
         {
-            throw new NotImplementedException();
+            Rsc5BoneData parent = null, child = null, sibling = null;
+            var bdata = writer.BlockList.OfType<Rsc5SkeletonBoneData>().FirstOrDefault();
+
+            if (bdata != null)
+            {
+                if (NextSibling.Item != null)
+                    sibling = bdata.Bones.FirstOrDefault(b => string.Equals(b.Name, NextSibling.Item.Name));
+                if (FirstChild.Item != null)
+                    child = bdata.Bones.FirstOrDefault(b => string.Equals(b.Name, FirstChild.Item.Name));
+                if (ParentRef.Item != null)
+                    parent = bdata.Bones.FirstOrDefault(b => string.Equals(b.Name, ParentRef.Item.Name));
+            }
+
+            writer.WriteStr(NameStr);
+            writer.WriteUInt32(Dofs);
+            writer.WritePtrEmbed(sibling, sibling, (ulong)(224 * sibling?.Index ?? 0));
+            writer.WritePtrEmbed(child, child, (ulong)(224 * child?.Index ?? 0));
+            writer.WritePtrEmbed(parent, parent, (ulong)(224 * parent?.Index ?? 0));
+            writer.WriteUInt16((ushort)Index);
+            writer.WriteUInt16((ushort)ID);
+            writer.WriteUInt16(Mirror);
+            writer.WriteByte(NumTransChannels);
+            writer.WriteByte(NumRotChannels);
+            writer.WriteByte(NumScaleChannels);
+            writer.WriteUInt16(Unknown_1Dh);
+            writer.WriteByte(Unknown_1Fh);
+            writer.WriteVector4(OrigPosition);
+            writer.WriteVector4(OrigRotationEuler);
+            writer.WriteVector4(OrigRotation.ToVector4());
+            writer.WriteVector4(OrigScale);
+            writer.WriteVector4(AbsolutePosition);
+            writer.WriteVector4(AbsoluteRotationEuler);
+            writer.WriteVector4(Sorient);
+            writer.WriteVector4(TranslationMin);
+            writer.WriteVector4(TranslationMax);
+            writer.WriteVector4(RotationMin);
+            writer.WriteVector4(RotationMax);
+            writer.WriteUInt32(JointData);
+            writer.WriteUInt32(NameHash);
+            writer.WriteUInt32(Unknown_D8h);
+            writer.WriteUInt32(Unknown_DCh);
+        }
+    }
+
+    [TC(typeof(EXP))] public class Rsc5SkeletonBoneData : Rsc5BlockBase
+    {
+        public override ulong BlockLength => BonesCount * 224;
+        public uint BonesCount { get; set; }
+        public Rsc5BoneData[] Bones { get; set; }
+
+        public Rsc5SkeletonBoneData()
+        {
+        }
+
+        public Rsc5SkeletonBoneData(Rsc5BoneData[] bones)
+        {
+            Bones = bones;
+            BonesCount = (uint)(bones?.Length ?? 0);
+        }
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            //Only use this for writing BoneData
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+            if (Bones != null)
+            {
+                foreach (var bone in Bones)
+                {
+                    bone.Write(writer);
+                }
+            }
+        }
+    }
+
+    [TC(typeof(EXP))] public class Rsc5SkeletonBoneTag : Rsc5BlockBase, MetaNode //rage::crSkeletonData::BoneIdData
+    {
+        public override ulong BlockLength => 4;
+        public Rsc5BoneIdEnum BoneTag { get; set; } //m_Id
+        public ushort BoneIndex { get; set; } //m_Index
+
+        public override void Read(Rsc5DataReader reader)
+        {
+            BoneTag = (Rsc5BoneIdEnum)reader.ReadUInt16();
+            BoneIndex = reader.ReadUInt16();
+        }
+
+        public override void Write(Rsc5DataWriter writer)
+        {
+            writer.WriteUInt16((ushort)BoneTag);
+            writer.WriteUInt16(BoneIndex);
+        }
+
+        public override string ToString()
+        {
+            return $"{BoneTag} : {BoneIndex}";
+        }
+
+        public void Read(MetaNodeReader reader)
+        {
+            BoneTag = reader.ReadEnum<Rsc5BoneIdEnum>("BoneTag");
+            BoneIndex = reader.ReadUInt16("BoneIndex");
+        }
+
+        public void Write(MetaNodeWriter writer)
+        {
+            writer.WriteEnum("BoneTag", BoneTag);
+            writer.WriteUInt16("BoneIndex", BoneIndex);
         }
     }
 
@@ -1361,8 +1618,7 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    [TC(typeof(EXP))]
-    public class Rsc5Shader : Rsc5BlockBase
+    [TC(typeof(EXP))] public class Rsc5Shader : Rsc5BlockBase
     {
         public override ulong BlockLength => 96;
         public uint VFT { get; set; }
@@ -1465,11 +1721,28 @@ namespace CodeX.Games.MCLA.RSC5
         {
             return Hash.ToString() + ": " + ((Type == 0) ? ("texture: " + Texture?.ToString() ?? "(none)") : ((Type > 1) ? ("array: count " + Type.ToString()) : ("vector4: " + Vector.ToString())));
         }
+    }
 
-        public enum Rsc5ShaderParamType : byte
-        {
-            Texture = 0,
-            Vector = 1
-        }
+    [Flags] public enum Rsc5IndexBufferD3DFlags : uint
+    {
+        D3DCOMMON_TYPE_VERTEXBUFFER = 0x1,
+        D3DCOMMON_TYPE_INDEXBUFFER = 0x2,
+        D3DCOMMON_TYPE_TEXTURE = 0x3,
+        D3DCOMMON_TYPE_SURFACE = 0x4,
+        D3DCOMMON_TYPE_VERTEXDECLARATION = 0x5,
+        D3DCOMMON_TYPE_VERTEXSHADER = 0x6,
+        D3DCOMMON_TYPE_PIXELSHADER = 0x7,
+        D3DCOMMON_TYPE_CONSTANTBUFFER = 0x8,
+        D3DCOMMON_TYPE_COMMANDBUFFER = 0x9,
+        D3DCOMMON_CPU_CACHED_MEMORY = 0x200000,
+        D3DINDEXBUFFER_INDEX32 = 0x80000000, //Indices are 32-bit instead of 16-bit
+        D3DINDEXBUFFER_ENDIAN_8IN16 = 0x20000000,
+        D3DINDEXBUFFER_ENDIAN_8IN32 = 0x40000000,
+    }
+
+    public enum Rsc5BoneIdEnum : ushort //TODO: Add remaining bone IDs
+    {
+        ROOT = 0,
+        BOX_OCCLUDER = 59432
     }
 }

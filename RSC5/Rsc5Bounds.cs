@@ -45,7 +45,7 @@ namespace CodeX.Games.MCLA.RSC5
             ParentDictionary = reader.ReadUInt32();
             UsageCount = reader.ReadUInt32();
             Hashes = reader.ReadArr<JenkHash>();
-            Bounds = reader.ReadPtrArr<Rsc5Bounds>(Rsc5Bounds.Create);
+            Bounds = reader.ReadPtrArr(Rsc5Bounds.Create);
         }
         public override void Write(Rsc5DataWriter writer)
         {
@@ -63,7 +63,7 @@ namespace CodeX.Games.MCLA.RSC5
         Composite = 12
     }
 
-    [TC(typeof(EXP))] public class Rsc5Bounds : Collider, Rsc5Block
+    [TC(typeof(EXP))] public class Rsc5Bounds : Collider, IRsc5Block
     {
         public virtual ulong BlockLength => 128;
         public ulong FilePosition { get; set; }

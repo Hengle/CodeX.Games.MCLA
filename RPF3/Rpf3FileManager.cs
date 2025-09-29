@@ -35,7 +35,7 @@ namespace CodeX.Games.MCLA.RPF3
             InitFileType(".xvr", "Vehicle Record", FileTypeIcon.SystemFile, FileTypeAction.ViewModels);
             InitFileType(".fxc", "Compiled Shaders", FileTypeIcon.SystemFile, FileTypeAction.ViewHex);
             InitFileType(".xapb", "Ambient Ped", FileTypeIcon.Piece, FileTypeAction.ViewModels, true, true);
-            InitFileType(".xft", "Fragment", FileTypeIcon.Piece, FileTypeAction.ViewModels, true, true);
+            InitFileType(".xft", "Fragment", FileTypeIcon.Piece, FileTypeAction.ViewModels, false, false);
             InitFileType(".cut", "Cutscene", FileTypeIcon.Level, FileTypeAction.ViewXml, true);
             InitFileType(".xtd", "Texture Dictionary", FileTypeIcon.Image, FileTypeAction.ViewTextures, true, true);
             InitFileType(".xcd", "Clip Dictionary", FileTypeIcon.Animation, FileTypeAction.ViewXml, true);

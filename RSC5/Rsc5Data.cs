@@ -3,18 +3,21 @@ using CodeX.Games.MCLA.RPF3;
 using System.Text;
 using CodeX.Core.Numerics;
 using System.Numerics;
+using EXP = System.ComponentModel.ExpandableObjectConverter;
+using TC = System.ComponentModel.TypeConverterAttribute;
 
 namespace CodeX.Games.MCLA.RSC5
 {
     public class Rsc5DataReader : BlockReader
     {
+        public const ulong VIRTUAL_BASE = 0x50000000;
+        public const ulong PHYSICAL_BASE = 0x60000000;
+
         public Rpf3ResourceFileEntry FileEntry;
         public DataEndianess Endianess;
         public int VirtualSize;
         public int PhysicalSize;
 
-        private const ulong VIRTUAL_BASE = 0x50000000;
-        private const ulong PHYSICAL_BASE = 0x60000000;
         public int Offset => GetDataOffset();
 
         public Rsc5DataReader(Rpf3ResourceFileEntry entry, byte[] data, DataEndianess endianess = DataEndianess.LittleEndian)
@@ -40,6 +43,11 @@ namespace CodeX.Games.MCLA.RSC5
             throw new Exception("Invalid Position. Possibly the file is corrupted.");
         }
 
+        public bool ReadBoolean()
+        {
+            return ReadByte() > 0;
+        }
+
         public new byte[] ReadBytes(int count)
         {
             int dataOffset = GetDataOffset();
@@ -51,103 +59,112 @@ namespace CodeX.Games.MCLA.RSC5
 
         public new byte[] ReadBytesReversed(int count)
         {
-            byte[] numArray = ReadBytes(count);
+            var numArray = ReadBytes(count);
             Array.Reverse((Array)numArray);
             return numArray;
         }
 
         public new byte[] ReadBytes(ulong ptr, int count)
         {
-            ulong position = Position;
+            var position = Position;
             Position = ptr;
-            byte[] numArray = ReadBytes(count);
+
+            var numArray = ReadBytes(count);
             Position = position;
             return numArray;
         }
 
         public new byte ReadByte()
         {
-            byte num = Data[GetDataOffset()];
+            var num = Data[GetDataOffset()];
             ++Position;
             return num;
         }
 
         public new short ReadInt16()
         {
-            short num = BufferUtil.ReadShort(this.Data, this.GetDataOffset());
-            this.Position += 2UL;
-            byte[] bytes = BitConverter.GetBytes(num);
+            var num = BufferUtil.ReadShort(this.Data, this.GetDataOffset());
+            Position += 2UL;
+
+            var bytes = BitConverter.GetBytes(num);
             Array.Reverse((Array)bytes);
             return BitConverter.ToInt16(bytes, 0);
         }
 
         public new ushort ReadUInt16()
         {
-            ushort num = BufferUtil.ReadUshort(Data, GetDataOffset());
+            var num = BufferUtil.ReadUshort(Data, GetDataOffset());
             Position += 2UL;
-            byte[] bytes = BitConverter.GetBytes(num);
+
+            var bytes = BitConverter.GetBytes(num);
             Array.Reverse((Array)bytes);
             return BitConverter.ToUInt16(bytes, 0);
         }
 
         public new int ReadInt32()
         {
-            int num = BufferUtil.ReadInt(Data, GetDataOffset());
+            var num = BufferUtil.ReadInt(Data, GetDataOffset());
             Position += 4UL;
-            byte[] bytes = BitConverter.GetBytes(num);
+
+            var bytes = BitConverter.GetBytes(num);
             Array.Reverse((Array)bytes);
             return BitConverter.ToInt32(bytes, 0);
         }
 
         public new uint ReadUInt32()
         {
-            uint num = BufferUtil.ReadUint(Data, GetDataOffset());
+            var num = BufferUtil.ReadUint(Data, GetDataOffset());
             Position += 4UL;
-            byte[] bytes = BitConverter.GetBytes(num);
+
+            var bytes = BitConverter.GetBytes(num);
             Array.Reverse((Array)bytes);
             return BitConverter.ToUInt32(bytes, 0);
         }
 
         public new long ReadInt64()
         {
-            long num = BufferUtil.ReadLong(Data, GetDataOffset());
+            var num = BufferUtil.ReadLong(Data, GetDataOffset());
             Position += 8UL;
-            byte[] bytes = BitConverter.GetBytes(num);
+
+            var bytes = BitConverter.GetBytes(num);
             Array.Reverse((Array)bytes);
             return BitConverter.ToInt64(bytes, 0);
         }
 
         public new ulong ReadUInt64()
         {
-            ulong num = BufferUtil.ReadUlong(Data, GetDataOffset());
+            var num = BufferUtil.ReadUlong(Data, GetDataOffset());
             Position += 8UL;
-            byte[] bytes = BitConverter.GetBytes(num);
+
+            var bytes = BitConverter.GetBytes(num);
             Array.Reverse((Array)bytes);
             return BitConverter.ToUInt64(bytes, 0);
         }
 
         public new float ReadSingle()
         {
-            float num = BufferUtil.ReadSingle(Data, GetDataOffset());
+            var num = BufferUtil.ReadSingle(Data, GetDataOffset());
             Position += 4UL;
-            byte[] bytes = BitConverter.GetBytes(num);
+
+            var bytes = BitConverter.GetBytes(num);
             Array.Reverse((Array)bytes);
             return BitConverter.ToSingle(bytes, 0);
         }
 
         public new double ReadDouble()
         {
-            double num = BufferUtil.ReadDouble(Data, GetDataOffset());
+            var num = BufferUtil.ReadDouble(Data, GetDataOffset());
             Position += 4UL;
             return num;
         }
 
         public string ReadString()
         {
-            List<byte> byteList = new List<byte>();
-            int dataOffset = GetDataOffset();
-            byte num1 = Data[dataOffset];
+            var byteList = new List<byte>();
+            var dataOffset = GetDataOffset();
+            var num1 = Data[dataOffset];
             uint num2 = 1;
+
             while (num1 > 0)
             {
                 byteList.Add(num1);
@@ -160,49 +177,50 @@ namespace CodeX.Games.MCLA.RSC5
 
         public new Vector2 ReadVector2()
         {
-            Vector2 vector = BufferUtil.ReadVector2(Data, GetDataOffset());
+            var vector = BufferUtil.ReadVector2(Data, GetDataOffset());
             Position += 8UL;
             return Rpf3Crypto.Swap(vector);
         }
 
         public Vector2[] ReadVector2Arr(int count)
         {
-            Vector2[] vector2Array = new Vector2[count];
+            var vector2Array = new Vector2[count];
             for (int index = 0; index < count; ++index)
             {
-                vector2Array[index] = Rpf3Crypto.Swap(BufferUtil.ReadVector2(Data, GetDataOffset()));
-                Position += 8UL;
+                vector2Array[index] = ReadVector2();
             }
             return vector2Array;
         }
 
-        public new Vector3 ReadVector3()
+        public Vector3 ReadVector3(bool toZXY = true)
         {
-            var v = BufferUtil.ReadVector3(Data, GetDataOffset());
+            var vector = BufferUtil.ReadVector3(Data, GetDataOffset());
+            vector = Rpf3Crypto.Swap(vector);
             Position += 12;
-            return new Vector3(v.Z, v.X, v.Y);
+            return toZXY ? new Vector3(vector.Z, vector.X, vector.Y) : vector;
         }
 
-        public Vector3[] ReadVector3Arr(int count)
+        public Vector3[] ReadVector3Arr(int count, bool toZXY = true)
         {
             var vectors = new Vector3[count];
             for (int i = 0; i < count; i++)
             {
-                vectors[i] = ReadVector3();
+                vectors[i] = ReadVector3(toZXY);
             }
             return vectors;
         }
 
         public Vector4 ReadVector4(bool toZXYW = true)
         {
-            var v = BufferUtil.ReadVector4(Data, GetDataOffset());
+            var vector = BufferUtil.ReadVector4(Data, GetDataOffset());
+            vector = Rpf3Crypto.Swap(vector);
             Position += 16;
 
-            if (float.IsNaN(v.W))
+            if (float.IsNaN(vector.W))
             {
-                v = new Vector4(v.XYZ(), 0.0f);
+                vector = new Vector4(vector.XYZ(), 0.0f);
             }
-            return toZXYW ? new Vector4(v.Z, v.X, v.Y, v.W) : v;
+            return toZXYW ? new Vector4(vector.Z, vector.X, vector.Y, vector.W) : vector;
         }
 
         public Vector4[] ReadVector4Arr(int count, bool toZXYW = true)
@@ -218,6 +236,7 @@ namespace CodeX.Games.MCLA.RSC5
         public new Matrix4x4 ReadMatrix4x4()
         {
             var matrix = BufferUtil.ReadMatrix4x4(Data, GetDataOffset());
+            matrix = Rpf3Crypto.Swap(matrix);
             Position += 64;
 
             if (float.IsNaN(matrix.M14))
@@ -235,11 +254,11 @@ namespace CodeX.Games.MCLA.RSC5
         {
             var bb = new BoundingBox4
             {
-                Min = BufferUtil.ReadVector4(Data, GetDataOffset()),
-                Max = BufferUtil.ReadVector4(Data, GetDataOffset())
+                Min = ReadVector4(),
+                Max = ReadVector4()
             };
             Position += 32;
-            return Rpf3Crypto.ToZXY(bb);
+            return bb;
         }
 
         public ushort[] ReadUInt16Arr(int count)
@@ -264,9 +283,9 @@ namespace CodeX.Games.MCLA.RSC5
             return numArray;
         }
 
-        public T ReadBlock<T>(Func<Rsc5DataReader, T> createFunc = null) where T : Rsc5Block, new()
+        public T ReadBlock<T>(Func<Rsc5DataReader, T> createFunc = null) where T : IRsc5Block
         {
-            if (Position == 0) return default(T);
+            if (Position == 0) return default;
             if (BlockPool.TryGetValue(Position, out var exitem))
             {
                 if (exitem is T exblock)
@@ -274,14 +293,14 @@ namespace CodeX.Games.MCLA.RSC5
                     return exblock;
                 }
             }
-            var block = (createFunc != null) ? createFunc(this) : new T();
+            var block = (createFunc != null) ? createFunc(this) : (T)Activator.CreateInstance(typeof(T), nonPublic: true);
             BlockPool[Position] = block;
             block.FilePosition = Position;
             block.Read(this);
             return block;
         }
 
-        public T ReadBlock<T>(ulong position, Func<Rsc5DataReader, T> createFunc = null) where T : Rsc5Block, new()
+        public T ReadBlock<T>(ulong position, Func<Rsc5DataReader, T> createFunc = null) where T : IRsc5Block
         {
             if (position == 0 || position == 0xCDCDCDCD)
             {
@@ -289,24 +308,19 @@ namespace CodeX.Games.MCLA.RSC5
             }
             var p = Position;
             Position = position;
-            var b = ReadBlock<T>(createFunc);
+            var b = ReadBlock(createFunc);
             Position = p;
             return b;
         }
 
-        public T ReadCustomBlock<T>(Func<Rsc5DataReader, T> createFunc = null) where T : Rsc5Block, new()
-        {
-            return ReadBlock(createFunc);
-        }
-
-        public Rsc5Ptr<T> ReadPtr<T>(Func<Rsc5DataReader, T> createFunc = null) where T : Rsc5Block, new()
+        public Rsc5Ptr<T> ReadPtr<T>(Func<Rsc5DataReader, T> createFunc = null) where T : IRsc5Block, new()
         {
             var ptr = new Rsc5Ptr<T>();
             ptr.Read(this, createFunc);
             return ptr;
         }
 
-        public Rsc5PtrArr<T> ReadPtrArr<T>(Func<Rsc5DataReader, T> createFunc = null) where T : Rsc5Block, new()
+        public Rsc5PtrArr<T> ReadPtrArr<T>(Func<Rsc5DataReader, T> createFunc = null) where T : IRsc5Block, new()
         {
             var arr = new Rsc5PtrArr<T>();
             arr.Read(this, createFunc);
@@ -320,16 +334,10 @@ namespace CodeX.Games.MCLA.RSC5
             return arr;
         }
 
-        public Rsc5CustomArr<T> ReadArr<T>(Func<Rsc5DataReader, T> createFunc = null) where T : Rsc5Block, new()
+        public Rsc5ManagedArr<T> ReadArr<T>(Func<Rsc5DataReader, T> createFunc = null) where T : IRsc5Block, new()
         {
-            var arr = new Rsc5CustomArr<T>();
-            arr.Read(this);
-            return arr;
-        }
-
-        public Rsc5RawArr<T> ReadRawArrItems<T>(Rsc5RawArr<T> arr, uint count, bool uShort = false) where T : unmanaged
-        {
-            arr.ReadItems(this, count, uShort);
+            var arr = new Rsc5ManagedArr<T>();
+            arr.Read(this, createFunc);
             return arr;
         }
 
@@ -344,14 +352,33 @@ namespace CodeX.Games.MCLA.RSC5
             return arr;
         }
 
-        public Rsc5Ptr<T> ReadPtrPtr<T>() where T : Rsc5Block, new()
+        public Rsc5RawArr<T> ReadRawArrItems<T>(Rsc5RawArr<T> arr, uint count) where T : unmanaged
+        {
+            arr.ReadItems(this, count);
+            return arr;
+        }
+
+        public Rsc5RawLst<T> ReadRawLstPtr<T>() where T : IRsc5Block, new()
+        {
+            var arr = new Rsc5RawLst<T>();
+            arr.ReadPtr(this);
+            return arr;
+        }
+
+        public Rsc5RawLst<T> ReadRawLstItems<T>(Rsc5RawLst<T> arr, uint count, Func<Rsc5DataReader, T> createFunc = null) where T : IRsc5Block, new()
+        {
+            arr.ReadItems(this, count, createFunc);
+            return arr;
+        }
+
+        public Rsc5Ptr<T> ReadPtrPtr<T>() where T : IRsc5Block, new()
         {
             var ptr = new Rsc5Ptr<T>();
             ptr.ReadPtr(this);
             return ptr;
         }
 
-        public Rsc5Ptr<T> ReadPtrItem<T>(Rsc5Ptr<T> ptr, Func<Rsc5DataReader, T> createFunc = null) where T : Rsc5Block, new()
+        public Rsc5Ptr<T> ReadPtrItem<T>(Rsc5Ptr<T> ptr, Func<Rsc5DataReader, T> createFunc = null) where T : IRsc5Block, new()
         {
             ptr.ReadItem(this, createFunc);
             return ptr;
@@ -363,11 +390,26 @@ namespace CodeX.Games.MCLA.RSC5
             str.Read(this);
             return str;
         }
+
+        public Rsc5StrA ReadStrA()
+        {
+            var str = new Rsc5StrA();
+            str.Read(this);
+            return str;
+        }
+
+        public static BlockAnalyzer Analyze<T>(Rpf3ResourceFileEntry rfe, byte[] data, Func<Rsc5DataReader, T> createFunc = null) where T : IRsc5Block, new()
+        {
+            var r = new Rsc5DataReader(rfe, data);
+            var block = r.ReadBlock(createFunc);
+            var analyzer = new BlockAnalyzer(r, rfe);
+            return analyzer;
+        }
     }
 
-    public class Rsc5DataWriter : BlockWriter
+    public class Rsc5DataWriter : BlockWriter //TODO: Make everything big-endian
     {
-        public HashSet<object> PhysicalBlocks = new HashSet<object>();
+        public HashSet<object> PhysicalBlocks = [];
 
         protected override ulong GetPointer(BuilderBlock block)
         {
@@ -380,7 +422,7 @@ namespace CodeX.Games.MCLA.RSC5
             return 0x50000000 + block.Position;
         }
 
-        public void WriteBlock<T>(T block) where T : Rsc5Block, new()
+        public void WriteBlock<T>(T block) where T : IRsc5Block
         {
             if (block == null)
                 return;
@@ -403,107 +445,131 @@ namespace CodeX.Games.MCLA.RSC5
             Position = expos;
         }
 
+        public void WriteBlocks<T>(T[] blocks) where T : IRsc5Block, new()
+        {
+            if (blocks == null)
+                return;
+            if (blocks.Length == 0)
+                return;
+
+            var b0 = blocks[0];
+            var bs = (int)(b0?.BlockLength ?? 0);
+
+            if (bs == 0)
+                return;
+
+            var exdata = Data;
+            var expos = Position;
+            var size = blocks.Length * bs;
+
+            this.Data = new byte[size];
+            this.Position = 0;
+            this.AddBlock(blocks, Data);
+
+            if (b0.IsPhysical)
+            {
+                this.PhysicalBlocks.Add(blocks);
+            }
+
+            for (int i = 0; i < blocks.Length; i++)
+            {
+                var block = blocks[i];
+                if (block == null) continue;
+                this.Position = (ulong)(i * bs);
+                block.Write(this);
+            }
+            this.Data = exdata;
+            this.Position = expos;
+        }
+
+        public void WriteBoolean(bool value)
+        {
+            WriteByte(value ? (byte)1 : (byte)0);
+        }
+
         public void WriteStr(Rsc5Str str)
         {
             str.Write(this);
         }
+
+        public void WriteStrA(Rsc5StrA str)
+        {
+            str.Write(this);
+        }
+
         public void WriteArr<T>(Rsc5Arr<T> arr) where T : unmanaged
         {
             arr.Write(this);
         }
 
-        public void WritePtr<T>(Rsc5Ptr<T> ptr) where T : Rsc5Block, new()
+        public void WritePtr<T>(Rsc5Ptr<T> ptr) where T : IRsc5Block, new()
         {
             ptr.Write(this);
         }
 
-        public void WritePtrArr<T>(Rsc5PtrArr<T> ptr) where T : Rsc5Block, new()
+        public void WritePtrArr<T>(Rsc5PtrArr<T> ptr) where T : IRsc5Block, new()
         {
             ptr.Write(this);
         }
 
-        public void WriteRawArrPtr<T>(Rsc5RawArr<T> ptr) where T : unmanaged
+        public void WriteRawArr<T>(Rsc5RawArr<T> ptr) where T : unmanaged
         {
             ptr.Write(this);
         }
-    }
 
-    public interface Rsc5Block
-    {
-        ulong FilePosition { get; set; }
-        ulong BlockLength { get; }
-        bool IsPhysical { get; }
-        void Read(Rsc5DataReader reader);
-        void Write(Rsc5DataWriter writer);
-    }
-
-    public abstract class Rsc5BlockBase : Rsc5Block
-    {
-        public ulong FilePosition { get; set; }
-        public bool IsPhysical => false;
-        public abstract ulong BlockLength { get; }
-        public abstract void Read(Rsc5DataReader reader);
-        public abstract void Write(Rsc5DataWriter writer);
-    }
-
-    public class Rsc5BlockMap : Rsc5BlockBase
-    {
-        public override ulong BlockLength => 4;
-
-        public uint Unknown1 { get; set; }
-
-        public override void Read(Rsc5DataReader reader)
+        public void WriteRawLst<T>(Rsc5RawLst<T> lst) where T : IRsc5Block, new()
         {
-            Unknown1 = reader.ReadUInt32();
+            lst.Write(this);
         }
 
-        public override void Write(Rsc5DataWriter writer)
+        public void WritePtrEmbed(object target, object owner, ulong offset)
         {
-            throw new NotImplementedException();
+            //Target is the object this is a pointer to - will be 0 pointer if target is null
+            //Owner is the object that the final pointer will be offset from
+            //Offset is added to the owner's pointer to get the final pointer.
+            if (target != null)
+            {
+                AddPointerRef(owner, offset);
+            }
+            WriteUInt32(0); //This data will get updated later if the object isn't null
         }
     }
 
-    public struct Rsc5CustomArr<T> where T : Rsc5Block, new()
+    [TC(typeof(EXP))] public struct Rsc5Ptr<T> where T : IRsc5Block
     {
-        public uint Position;
-        public ushort Count;
-        public ushort Capacity;
-        public T[] Items;
+        public ulong Position;
+        public T Item;
 
-        public void Read(Rsc5DataReader reader, Func<Rsc5DataReader, T> createFunc = null) //Big-endian
+        public void ReadPtr(Rsc5DataReader reader)
         {
             Position = reader.ReadUInt32();
-            Count = reader.ReadUInt16();
-            Capacity = reader.ReadUInt16();
-
-            var p = reader.Position;
-            reader.Position = Position;
-            Items = new T[Count];
-
-            for (int i = 0; i < Count; i++)
-            {
-                Items[i] = reader.ReadCustomBlock(createFunc);
-            }
-            reader.Position = p;
         }
 
-        public void Write(Rsc5DataWriter writer)
+        public void Read(Rsc5DataReader reader, Func<Rsc5DataReader, T> createFunc = null)
         {
+            Position = reader.ReadUInt32();
+            Item = reader.ReadBlock(Position, createFunc);
         }
 
-        public T this[int index]
+        public void ReadItem(Rsc5DataReader reader, Func<Rsc5DataReader, T> createFunc = null)
         {
-            get => Items[index];
-            set => Items[index] = value;
+            Item = reader.ReadBlock(Position, createFunc);
         }
 
-        public override string ToString()
+        public readonly void Write(Rsc5DataWriter writer)
         {
-            return "Count: " + Count.ToString();
+            writer.AddPointerRef(Item);
+            writer.WriteUInt32((uint)Position);
+            writer.WriteBlock(Item);
+        }
+
+        public override readonly string ToString()
+        {
+            return Item?.ToString() ?? Position.ToString();
         }
     }
 
-    public struct Rsc5Arr<T> where T : unmanaged
+    [TC(typeof(EXP))] public struct Rsc5Arr<T> where T : unmanaged
     {
         public uint Position;
         public uint Count;
@@ -543,17 +609,59 @@ namespace CodeX.Games.MCLA.RSC5
             Position = reader.ReadUInt32();
             Count = count;
             Capacity = count;
+
             var p = reader.Position;
             reader.Position = Position;
             Items = reader.ReadArray<T>(count);
             reader.Position = p;
         }
 
-        public void Write(Rsc5DataWriter writer)
+        public readonly void Write(Rsc5DataWriter writer)
         {
         }
 
-        public T this[int index]
+        public readonly T this[int index]
+        {
+            get => Items[index];
+            set => Items[index] = value;
+        }
+
+        public override readonly string ToString()
+        {
+            return "Count: " + Count.ToString();
+        }
+    }
+
+    [TC(typeof(EXP))] public struct Rsc5RawArr<T>(T[] items) where T : unmanaged
+    {
+        public ulong Position { get; set; } = 0;
+        public T[] Items { get; set; } = items;
+
+        public void ReadPtr(Rsc5DataReader reader)
+        {
+            Position = reader.ReadUInt32();
+        }
+
+        public void ReadItems(Rsc5DataReader reader, uint count)
+        {
+            var p = reader.Position;
+            reader.Position = Position;
+
+            Items = reader.ReadArray<T>(count);
+            Rpf3Crypto.SwapEndianness(Items);
+            Rpf3Crypto.TransformToZXY(Items);
+
+            reader.Position = p;
+        }
+
+        public readonly void Write(Rsc5DataWriter writer)
+        {
+            writer.AddPointerRef(Items);
+            writer.WriteUInt32((uint)Position);
+            writer.WriteArray(Items);
+        }
+
+        public readonly T this[int index]
         {
             get => Items[index];
             set => Items[index] = value;
@@ -561,11 +669,109 @@ namespace CodeX.Games.MCLA.RSC5
 
         public override string ToString()
         {
+            return "Count: " + (Items?.Length.ToString() ?? "0");
+        }
+    }
+
+    [TC(typeof(EXP))] public struct Rsc5RawLst<T>(T[] items) where T : IRsc5Block, new()
+    {
+        public uint Position { get; set; } = 0;
+        public T[] Items { get; set; } = items;
+
+        public void ReadPtr(Rsc5DataReader reader)
+        {
+            Position = reader.ReadUInt32();
+        }
+
+        public void ReadItems(Rsc5DataReader reader, uint count, Func<Rsc5DataReader, T> createFunc = null)
+        {
+            if (Position != 0)
+            {
+                var p = reader.Position;
+                reader.Position = Position;
+                Items = new T[count];
+
+                for (int i = 0; i < count; i++)
+                {
+                    Items[i] = reader.ReadBlock(createFunc);
+                }
+                reader.Position = p;
+            }
+        }
+
+        public readonly void Write(Rsc5DataWriter writer)
+        {
+            writer.AddPointerRef(Items);
+            writer.WriteUInt32(Position);
+            writer.WriteBlocks(Items);
+        }
+
+        public readonly T this[int index]
+        {
+            get => Items[index];
+            set => Items[index] = value;
+        }
+
+        public override readonly string ToString()
+        {
+            return "Count: " + (Items?.Length.ToString() ?? "0");
+        }
+    }
+
+    [TC(typeof(EXP))] public struct Rsc5ManagedArr<T> where T : IRsc5Block, new()
+    {
+        public uint Position { get; set; }
+        public ushort Count { get; set; }
+        public ushort Capacity { get; set; }
+        public T[] Items { get; set; }
+
+        public Rsc5ManagedArr(T[] items)
+        {
+            Position = 0;
+            Items = items;
+            Count = (ushort)(items?.Length ?? 0);
+            Capacity = Count;
+        }
+
+        public void Read(Rsc5DataReader reader, Func<Rsc5DataReader, T> createFunc = null)
+        {
+            Position = reader.ReadUInt32();
+            Count = reader.ReadUInt16();
+            Capacity = reader.ReadUInt16();
+
+            var p = reader.Position;
+            reader.Position = Position;
+            Items = new T[Count];
+
+            for (int i = 0; i < Count; i++)
+            {
+                Items[i] = reader.ReadBlock(createFunc);
+            }
+            reader.Position = p;
+        }
+
+        public readonly void Write(Rsc5DataWriter writer)
+        {
+            writer.AddPointerRef(Items);
+            writer.WriteUInt32(Position);
+            writer.WriteUInt16(Count);
+            writer.WriteUInt16(Capacity);
+            writer.WriteBlocks(Items);
+        }
+
+        public readonly T this[int index]
+        {
+            get => Items[index];
+            set => Items[index] = value;
+        }
+
+        public override readonly string ToString()
+        {
             return "Count: " + Count.ToString();
         }
     }
 
-    public struct Rsc5PtrArr<T> where T : Rsc5Block, new()
+    [TC(typeof(EXP))] public struct Rsc5PtrArr<T> where T : IRsc5Block, new()
     {
         public uint Position;
         public ushort Count;
@@ -588,79 +794,68 @@ namespace CodeX.Games.MCLA.RSC5
             {
                 byte[] buffer = BitConverter.GetBytes(Pointers[i]);
                 Array.Reverse((Array)buffer);
-                Items[i] = reader.ReadBlock<T>(BitConverter.ToUInt32(buffer, 0), createFunc);
+                Items[i] = reader.ReadBlock(BitConverter.ToUInt32(buffer, 0), createFunc);
             }
             reader.Position = p;
         }
 
-        public void Write(Rsc5DataWriter writer)
+        public readonly void Write(Rsc5DataWriter writer)
         {
         }
 
-        public T this[int index]
+        public readonly T this[int index]
         {
             get => Items[index];
             set => Items[index] = value;
         }
 
-        public override string ToString()
+        public override readonly string ToString()
         {
             return "Count: " + Count.ToString();
         }
     }
 
-    public struct Rsc5Ptr<T> where T : Rsc5Block, new()
+    [TC(typeof(EXP))] public struct Rsc5Str
     {
-        public ulong Position;
-        public T Item;
+        public ulong Position { get; set; }
+        public string Value { get; set; }
 
-        public void ReadPtr(Rsc5DataReader reader)
+        public Rsc5Str(string str)
         {
-            Position = reader.ReadUInt32();
+            Position = 0;
+            Value = str;
         }
 
-        public void Read(Rsc5DataReader reader, Func<Rsc5DataReader, T> createFunc = null)
+        public Rsc5Str(ulong pos)
         {
-            Position = reader.ReadUInt32();
-            Item = reader.ReadBlock(Position, createFunc);
+            Position = pos;
         }
-
-        public void ReadItem(Rsc5DataReader reader, Func<Rsc5DataReader, T> createFunc = null)
-        {
-            Item = reader.ReadBlock(Position, createFunc);
-        }
-
-        public void Write(Rsc5DataWriter writer)
-        {
-            writer.AddPointerRef(Item);
-            writer.WriteUInt32((uint)Position);
-            writer.WriteBlock(Item);
-        }
-
-        public override string ToString()
-        {
-            return Item?.ToString() ?? Position.ToString();
-        }
-    }
-
-    public struct Rsc5Str
-    {
-        public ulong Position;
-        public string Value;
 
         public void Read(Rsc5DataReader reader)
         {
             Position = reader.ReadUInt32();
             if (Position != 0)
             {
+                var blockexists = reader.BlockPool.TryGetValue(Position, out var exblock);
+                if (blockexists && (exblock is string str))
+                {
+                    Value = str;
+                    return;
+                }
+
                 var p = reader.Position;
                 reader.Position = Position;
                 Value = reader.ReadString();
                 reader.Position = p;
+
+                if (blockexists == false)
+                {
+                    reader.BlockPool[Position] = Value;
+                }
             }
         }
 
-        public void Write(Rsc5DataWriter writer)
+        public readonly void Write(Rsc5DataWriter writer)
         {
             writer.AddPointerRef(Value);
             writer.WriteUInt32((uint)Position);
@@ -671,6 +866,7 @@ namespace CodeX.Games.MCLA.RSC5
                 var b = encoding.GetBytes(Value);
                 var len = b.Length + 1;
                 var data = new byte[len];
+
                 if (b != null)
                 {
                     Buffer.BlockCopy(b, 0, data, 0, b.Length);
@@ -679,21 +875,27 @@ namespace CodeX.Games.MCLA.RSC5
             }
         }
 
-        public override string ToString()
+        public override readonly string ToString()
         {
-            return Value;
+            return Value ?? "NULL";
         }
     }
 
-    public class Rsc5String : Rsc5BlockBase
+    [TC(typeof(EXP))] public class Rsc5String : Rsc5BlockBase
     {
         public override ulong BlockLength => 8;
         public uint Position;
         public string Value;
         public uint FixedLength;
 
-        public Rsc5String() { }
-        public Rsc5String(uint fixedLength) { FixedLength = fixedLength; }
+        public Rsc5String()
+        {
+        }
+
+        public Rsc5String(uint fixedLength)
+        {
+            FixedLength = fixedLength;
+        }
 
         public override void Read(Rsc5DataReader reader)
         {
@@ -721,13 +923,87 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    public abstract class Rsc5FileBase : Rsc5BlockBase
+    [TC(typeof(EXP))] public struct Rsc5StrA(string str, ushort capacity)
     {
-        public ulong VFT { get; set; }
+        public uint Position { get; set; } = 0;
+        public ushort Length { get; set; } = (ushort)(str?.Length ?? 0);
+        public ushort Capacity { get; set; } = capacity;
+        public string Value { get; set; } = str;
+
+        public void Read(Rsc5DataReader reader)
+        {
+            Position = reader.ReadUInt32();
+            Length = reader.ReadUInt16();
+            Capacity = reader.ReadUInt16();
+
+            if (Position != 0)
+            {
+                var blockexists = reader.BlockPool.TryGetValue(Position, out var exblock);
+                if (blockexists && (exblock is string str))
+                {
+                    Value = str;
+                    return;
+                }
+
+                var p = reader.Position;
+                reader.Position = Position;
+
+                Value = reader.ReadStringFixedLength(Length);
+                reader.Position = p;
+
+                if (!blockexists)
+                {
+                    reader.BlockPool[Position] = Value;
+                }
+            }
+        }
+
+        public readonly void Write(Rsc5DataWriter writer)
+        {
+            writer.AddPointerRef(Value);
+            writer.WriteUInt32(Position);
+            writer.WriteUInt16(Length);
+            writer.WriteUInt16(Capacity);
+
+            if (Value != null)
+            {
+                var encoding = Encoding.UTF8;
+                var b = encoding.GetBytes(Value);
+                var len = b.Length + 1;
+                var data = new byte[len];
+
+                if (b != null)
+                {
+                    Buffer.BlockCopy(b, 0, data, 0, b.Length);
+                }
+                writer.AddBlock(Value, data);
+            }
+        }
+
+        public override readonly string ToString()
+        {
+            return Value;
+        }
+    }
+
+    [TC(typeof(EXP))] public abstract class Rsc5BlockBase : IRsc5Block
+    {
+        public ulong FilePosition { get; set; }
+        public bool IsPhysical => false;
+        public abstract ulong BlockLength { get; }
+        public abstract void Read(Rsc5DataReader reader);
+        public abstract void Write(Rsc5DataWriter writer);
+    }
+
+    [TC(typeof(EXP))] public class Rsc5BlockMap : Rsc5BlockBase
+    {
+        public override ulong BlockLength => 4;
+
+        public uint Unknown1 { get; set; }
 
         public override void Read(Rsc5DataReader reader)
         {
-            VFT = reader.ReadUInt32();
+            Unknown1 = reader.ReadUInt32();
         }
 
         public override void Write(Rsc5DataWriter writer)
@@ -736,43 +1012,27 @@ namespace CodeX.Games.MCLA.RSC5
         }
     }
 
-    public struct Rsc5RawArr<T> where T : unmanaged
+    [TC(typeof(EXP))] public abstract class Rsc5FileBase : Rsc5BlockBase
     {
-        public ulong Position;
-        public T[] Items;
+        public abstract uint VFT { get; set; }
 
-        public void ReadPtr(Rsc5DataReader reader)
+        public override void Read(Rsc5DataReader reader)
         {
-            Position = reader.ReadUInt32();
+            VFT = reader.ReadUInt32();
         }
 
-        public void ReadItems(Rsc5DataReader reader, uint count, bool uShort = false) //Shouldn't be done like this for BE values - Foxxyyy
+        public override void Write(Rsc5DataWriter writer)
         {
-            var p = reader.Position;
-            reader.Position = Position;
-
-            if (uShort)
-                Items = reader.ReadUInt16Arr((int)count) as T[];
-            else
-                Items = reader.ReadArray<T>(count);
-
-            Items ??= Array.Empty<T>();
-            reader.Position = p;
+            writer.WriteUInt32(VFT);
         }
+    }
 
-        public void Write(Rsc5DataWriter writer)
-        {
-        }
-
-        public T this[int index]
-        {
-            get => Items[index];
-            set => Items[index] = value;
-        }
-
-        public override string ToString()
-        {
-            return "Count: " + (Items?.Length.ToString() ?? "0");
-        }
+    [TC(typeof(EXP))]  public interface IRsc5Block
+    {
+        ulong FilePosition { get; set; }
+        ulong BlockLength { get; }
+        bool IsPhysical { get; }
+        void Read(Rsc5DataReader reader);
+        void Write(Rsc5DataWriter writer);
     }
 }
